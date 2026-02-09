@@ -23,8 +23,10 @@
 # Logs and databases #
 ######################
 *.log
-*.sql
 *.sqlite
+
+# Allow test SQL files
+!test/sql/*.sql
 
 # OS generated files #
 ######################
