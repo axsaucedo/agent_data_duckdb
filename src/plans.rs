@@ -79,12 +79,15 @@ impl VTab for ReadPlansVTab {
         );
 
         let path = if bind.get_parameter_count() > 0 {
-            Some(bind.get_parameter(0).to_string())
+            let p = bind.get_parameter(0).to_string();
+            if p.is_empty() { None } else { Some(p) }
         } else {
             None
         };
+        let named_path = bind.get_named_parameter("path").map(|v| v.to_string());
+        let effective_path = named_path.or(path);
 
-        let rows = Self::load_rows(path.as_deref());
+        let rows = Self::load_rows(effective_path.as_deref());
         Ok(PlansBindData {
             rows: Mutex::new(rows),
         })
@@ -136,7 +139,10 @@ impl VTab for ReadPlansVTab {
         Ok(())
     }
 
-    fn parameters() -> Option<Vec<LogicalTypeHandle>> {
-        Some(vec![LogicalTypeHandle::from(LogicalTypeId::Varchar)])
+    fn named_parameters() -> Option<Vec<(String, LogicalTypeHandle)>> {
+        Some(vec![(
+            "path".to_string(),
+            LogicalTypeHandle::from(LogicalTypeId::Varchar),
+        )])
     }
 }
