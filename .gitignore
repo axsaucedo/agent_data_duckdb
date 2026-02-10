@@ -89,6 +89,19 @@ tags.*
 Gemfile.lock
 _site/
 
+# Rust
+target/
+Cargo.lock
+
+# DuckDB extension build artifacts
+build/
+configure/
+*.duckdb_extension
+*.duckdb
+
+# Report
+REPORT.md
+
 # AI
 .claude
 CLAUDE.md
