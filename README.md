@@ -195,11 +195,12 @@ SELECT * FROM read_conversations(path='test/data') WHERE message_type != '_parse
 ## Testing
 
 ```bash
-# Build and run all 50+ assertion-driven tests
+# Build and run all 54+ assertion-driven tests + Python smoke test
 make test
 
 # Or run tests directly
-./scripts/test.sh
+./scripts/test.sh       # SQL tests only
+./scripts/smoke_test.sh # Python/DuckDB DataFrame smoke test
 ```
 
 The test suite covers:
@@ -235,25 +236,37 @@ The notebook includes:
 - Command history timeline
 - Cross-table analysis (sessions ↔ todos ↔ history)
 
+## Architecture
+
+The extension uses a **generic VTab framework** (`vtab.rs`) that eliminates boilerplate. Each table function module only provides three things:
+
+1. **Column definitions** — list of `(name, type)` pairs
+2. **`load_rows(path)`** — reads files and returns `Vec<Row>`
+3. **`write_row(output, idx, row)`** — writes one row to DuckDB vectors
+
+The `GenericVTab<T>` wrapper handles all DuckDB VTab lifecycle methods (bind/init/func/named_parameters) generically. This keeps each module focused on its data logic.
+
 ## Project Structure
 
 ```
 ├── Cargo.toml          # Rust crate configuration
 ├── Makefile            # Build system (wraps extension-ci-tools)
 ├── src/
-│   ├── lib.rs          # Extension entry point
-│   ├── types.rs        # Serde types for JSON/JSONL
+│   ├── lib.rs          # Extension entry point (registers 5 functions)
+│   ├── vtab.rs         # Generic VTab framework (TableFunc trait, shared helpers)
+│   ├── types.rs        # Serde types for JSON/JSONL deserialization
 │   ├── utils.rs        # Path resolution, file discovery
-│   ├── conversations.rs # read_conversations() implementation
-│   ├── plans.rs        # read_plans() implementation
-│   ├── todos.rs        # read_todos() implementation
-│   ├── history.rs      # read_history() implementation
-│   └── stats.rs        # read_stats() implementation
+│   ├── conversations.rs # read_conversations() — JSONL conversation data
+│   ├── plans.rs        # read_plans() — markdown plan files
+│   ├── todos.rs        # read_todos() — JSON todo items
+│   ├── history.rs      # read_history() — command history JSONL
+│   └── stats.rs        # read_stats() — daily activity stats
 ├── test/
 │   ├── data/           # Synthetic test data (mock ~/.claude)
 │   └── sql/            # SQL test files (assertion-driven)
 ├── scripts/
-│   └── test.sh         # Test runner
+│   ├── test.sh         # SQL test runner
+│   └── smoke_test.sh   # Python/DuckDB smoke test (DataFrame validation)
 ├── examples/
 │   └── explore.py      # Marimo notebook for exploration
 └── docs/               # Additional documentation
