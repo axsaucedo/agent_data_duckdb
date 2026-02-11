@@ -52,3 +52,29 @@ FROM (SELECT COUNT(*) AS cnt FROM read_conversations(path='test/data') WHERE slu
 -- Test 12: 12 distinct files (6 main + 6 agent)
 SELECT CASE WHEN cnt = 12 THEN 'PASS' ELSE 'FAIL: expected 12 files got ' || cnt END AS test_file_count
 FROM (SELECT COUNT(DISTINCT file_name) AS cnt FROM read_conversations(path='test/data'));
+
+-- Test 13: Token counts are non-negative where present
+SELECT CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL: ' || cnt || ' negative token counts' END AS test_token_counts_valid
+FROM (SELECT COUNT(*) AS cnt FROM read_conversations(path='test/data')
+      WHERE (input_tokens IS NOT NULL AND input_tokens < 0)
+         OR (output_tokens IS NOT NULL AND output_tokens < 0)
+         OR (cache_creation_tokens IS NOT NULL AND cache_creation_tokens < 0)
+         OR (cache_read_tokens IS NOT NULL AND cache_read_tokens < 0));
+
+-- Test 14: Timestamps follow ISO 8601 format where present
+SELECT CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL: ' || cnt || ' invalid timestamps' END AS test_timestamp_format
+FROM (SELECT COUNT(*) AS cnt FROM read_conversations(path='test/data')
+      WHERE timestamp IS NOT NULL
+      AND timestamp NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*');
+
+-- Test 15: Model is non-empty for assistant messages
+SELECT CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL: ' || cnt || ' assistant msgs without model' END AS test_assistant_has_model
+FROM (SELECT COUNT(*) AS cnt FROM read_conversations(path='test/data')
+      WHERE message_type = 'assistant' AND model IS NULL);
+
+-- Test 16: User and assistant messages have content
+SELECT CASE WHEN cnt = 0 THEN 'PASS' ELSE 'FAIL: ' || cnt || ' user/assistant msgs without content' END AS test_message_content_present
+FROM (SELECT COUNT(*) AS cnt FROM read_conversations(path='test/data')
+      WHERE message_type IN ('user', 'assistant')
+      AND message_content IS NULL
+      AND tool_name IS NULL);
