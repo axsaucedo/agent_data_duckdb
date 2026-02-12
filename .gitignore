@@ -99,9 +99,6 @@ configure/
 *.duckdb_extension
 *.duckdb
 
-# Report
-REPORT.md
-
 # AI
 .claude
 CLAUDE.md
