@@ -43,6 +43,24 @@ for table, expected_count in expected.items():
     else:
         print(f'PASS: {table} = {actual} rows')
 
+# Verify Copilot data loading
+copilot_expected = {
+    'conversations': 53,
+    'plans': 1,
+    'todos': 4,
+    'history': 5,
+    'stats': 0,
+}
+
+for table, expected_count in copilot_expected.items():
+    df = con.execute(f\"SELECT * FROM read_{table}(path='test/data_copilot')\").df()
+    actual = len(df)
+    if actual != expected_count:
+        print(f'FAIL: copilot {table} expected {expected_count} rows, got {actual}')
+        failed = True
+    else:
+        print(f'PASS: copilot {table} = {actual} rows')
+
 # Verify DataFrame columns are accessible (ensures pandas compatibility)
 conv = con.execute(\"SELECT * FROM read_conversations(path='test/data') LIMIT 1\").df()
 required_cols = ['source', 'session_id', 'project_path', 'message_type', 'uuid', 'timestamp', 'repository']
