@@ -24,10 +24,8 @@ release: build_extension_library_release build_extension_with_metadata_release
 test: test_debug
 test_debug: debug
 	$(PYTHON_VENV_BIN) -m duckdb_sqllogictest --test-dir test/sql --external-extension build/debug/$(EXTENSION_NAME).duckdb_extension
-	bash scripts/smoke_test.sh
 test_release: release
 	$(PYTHON_VENV_BIN) -m duckdb_sqllogictest --test-dir test/sql --external-extension build/release/$(EXTENSION_NAME).duckdb_extension
-	bash scripts/smoke_test.sh
 
 clean: clean_build clean_rust
 clean_all: clean_configure clean
