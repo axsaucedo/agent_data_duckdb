@@ -91,7 +91,6 @@ _site/
 
 # Rust
 target/
-Cargo.lock
 
 # DuckDB extension build artifacts
 build/
