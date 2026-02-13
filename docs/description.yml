@@ -12,7 +12,7 @@ extension:
 
 repo:
   github: axsaucedo/agent_data_duckdb
-  ref: 5cf6802a597e7c5d8a5aa00a17d2733817048668
+  ref: 1348a6d1a25ada29f78087e1469dfbff3bb095e1
 
 docs:
   hello_world: |
