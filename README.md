@@ -1,14 +1,27 @@
 # agent_data — DuckDB Extension for Agent Session Data
 
-A DuckDB extension that reads and queries AI coding agent session data as structured tables. Built in Rust using the official DuckDB extension template.
+The DuckDB extension for Agent Software Development Data written in Rust.
 
-**Supported agents:** Claude Code (`~/.claude`) and GitHub Copilot CLI (`~/.copilot`). Designed to expand to other agents (Gemini, Codex) in the future.
+**Supported frameworks:** Claude Code data (`~/.claude`) and GitHub Copilot CLI data (`~/.copilot`).
+
+> OpenAI Codex & Gemini CLI coming soon™.
+
+## Installing
+
+```sql
+INSTALL anndata FROM community;
+LOAD anndata;
+```
 
 ## Quick Start
 
 ```sql
--- Load the extension
-LOAD 'build/debug/agent_data.duckdb_extension';
+
+-- Load all data from both Claude and Copilot
+SELECT * FROM read_conversations(path='~/.claude')
+UNION ALL
+SELECT * FROM read_conversations(path='~/.copilot');
+
 
 -- Query Claude Code data (auto-detected from folder structure)
 FROM read_conversations(path='~/.claude');
@@ -22,11 +35,6 @@ FROM read_conversations(path='~/.copilot');
 FROM read_plans(path='~/.copilot');
 FROM read_history(path='~/.copilot');
 FROM read_todos(path='~/.copilot');
-
--- UNION both sources
-SELECT * FROM read_conversations(path='~/.claude')
-UNION ALL
-SELECT * FROM read_conversations(path='~/.copilot');
 
 -- Explicit source override
 FROM read_conversations(path='some/path', source='copilot');
