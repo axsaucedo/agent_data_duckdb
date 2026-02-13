@@ -1,0 +1,54 @@
+extension:
+  name: agent_data
+  description: Read AI coding agent session data (Claude Code, GitHub Copilot CLI) as DuckDB tables
+  version: 0.1.0
+  language: Rust
+  build: cargo
+  license: MIT
+  excluded_platforms: "wasm_mvp;wasm_eh;wasm_threads"
+  requires_toolchains: "rust"
+  maintainers:
+    - axsaucedo
+
+repo:
+  github: axsaucedo/duckdb-claude-ext
+  ref: REPLACE_WITH_COMMIT_SHA
+
+docs:
+  hello_world: |
+    -- Read Claude Code conversations from default path (~/.claude)
+    SELECT session_id, message_type, message_role, tool_name
+    FROM read_conversations()
+    LIMIT 10;
+
+    -- Read GitHub Copilot CLI conversations
+    SELECT session_id, message_type, message_role, tool_name
+    FROM read_conversations(path='~/.copilot')
+    LIMIT 10;
+
+    -- Count sessions and messages per agent
+    SELECT source, COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS messages
+    FROM (
+        SELECT * FROM read_conversations()
+        UNION ALL
+        SELECT * FROM read_conversations(path='~/.copilot')
+    )
+    GROUP BY source;
+
+  extended_description: |
+    The `agent_data` extension provides 5 table functions for reading AI coding agent
+    session data directly into DuckDB:
+
+    - `read_conversations([path], [source])` — conversation messages and tool calls
+    - `read_plans([path], [source])` — plan/strategy markdown files
+    - `read_todos([path], [source])` — todo/checklist items with status
+    - `read_history([path], [source])` — command/prompt history
+    - `read_stats([path], [source])` — daily activity statistics (Claude only)
+
+    **Auto-detection:** The provider (Claude or Copilot) is automatically detected from
+    the directory structure. Pass `source='claude'` or `source='copilot'` to override.
+
+    **Unified schema:** All functions return a unified schema with a `source` column,
+    allowing cross-agent queries via `UNION ALL`.
+
+    For full documentation, see the [GitHub repository](https://github.com/axsaucedo/duckdb-claude-ext).
