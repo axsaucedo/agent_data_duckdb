@@ -1,82 +1,79 @@
-# agent_data — DuckDB Extension for Agent Session Data
+# agent_data — DuckDB Extension for AI Agent Session Data
 
-The DuckDB extension for Agent Software Development Data written in Rust.
+A [DuckDB](https://duckdb.org/) extension for querying AI coding agent session data with SQL. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported frameworks:** Claude Code data (`~/.claude`) and GitHub Copilot CLI data (`~/.copilot`).
-
-> OpenAI Codex & Gemini CLI coming soon™.
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`) and [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`).
 
 ## Installing
 
 ```sql
-INSTALL anndata FROM community;
-LOAD anndata;
+INSTALL agent_data FROM community;
+LOAD agent_data;
 ```
 
 ## Quick Start
 
+All functions read from the default agent directory (`~/.claude` for Claude Code, `~/.copilot` for Copilot) when no `path` is provided. The provider is **auto-detected** from the directory structure.
+
 ```sql
+-- How many conversations have I had with Claude?
+SELECT COUNT(DISTINCT session_id) AS sessions,
+       COUNT(*) AS total_messages
+FROM read_conversations();
 
--- Load all data from both Claude and Copilot
-SELECT * FROM read_conversations(path='~/.claude')
-UNION ALL
-SELECT * FROM read_conversations(path='~/.copilot');
+-- What did I work on this week?
+SELECT date, message_count, tool_call_count
+FROM read_stats()
+ORDER BY date DESC
+LIMIT 7;
 
+-- Which tools does the assistant use most?
+SELECT tool_name, COUNT(*) AS uses
+FROM read_conversations()
+WHERE tool_name IS NOT NULL
+GROUP BY tool_name
+ORDER BY uses DESC
+LIMIT 10;
 
--- Query Claude Code data (auto-detected from folder structure)
-FROM read_conversations(path='~/.claude');
-FROM read_plans(path='~/.claude');
-FROM read_todos(path='~/.claude');
-FROM read_history(path='~/.claude');
-FROM read_stats(path='~/.claude');
+-- What are my active todos?
+SELECT content, status
+FROM read_todos()
+WHERE status != 'completed'
+ORDER BY item_index;
 
--- Query Copilot CLI data
+-- Compare activity across Claude and Copilot
+SELECT source, COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS messages
+FROM (
+    SELECT * FROM read_conversations(path='~/.claude')
+    UNION ALL
+    SELECT * FROM read_conversations(path='~/.copilot')
+)
+GROUP BY source;
+```
+
+### Default Behavior
+
+When called **without arguments**, each function reads from its provider's default path:
+
+| Function | Default path | Detected as |
+|----------|-------------|-------------|
+| `read_conversations()` | `~/.claude` | Claude Code |
+| `read_plans()` | `~/.claude` | Claude Code |
+| `read_todos()` | `~/.claude` | Claude Code |
+| `read_history()` | `~/.claude` | Claude Code |
+| `read_stats()` | `~/.claude` | Claude Code |
+
+To read Copilot data, pass the path explicitly:
+
+```sql
 FROM read_conversations(path='~/.copilot');
-FROM read_plans(path='~/.copilot');
-FROM read_history(path='~/.copilot');
-FROM read_todos(path='~/.copilot');
-
--- Explicit source override
-FROM read_conversations(path='some/path', source='copilot');
 ```
 
-## Installation
+### Available Functions
 
-### Prerequisites
-
-- Rust toolchain (edition 2021+)
-- DuckDB 1.4.4
-- Python 3.12+ (for build tooling and notebooks)
-
-### Build
-
-```bash
-# First time: configure build environment
-make configure
-
-# Build debug extension
-make debug
-
-# Build release extension
-make release
-
-# Run tests
-make test
-```
-
-The compiled extension is at `build/debug/agent_data.duckdb_extension` (or `build/release/`).
-
-### Load in DuckDB
-
-```bash
-duckdb -unsigned -c "LOAD 'build/debug/agent_data.duckdb_extension'; FROM read_conversations(path='~/.claude');"
-```
-
-## API Reference
-
-All functions accept:
-- **`path`** (optional) — data directory path. Defaults to `~/.claude`. The provider is auto-detected from folder structure (`projects/` → Claude, `session-state/` → Copilot).
-- **`source`** (optional) — explicit provider override: `'claude'` or `'copilot'`. Use when auto-detection fails or to force a specific parser.
+All functions accept two optional parameters:
+- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`projects/` → Claude, `session-state/` → Copilot).
+- **`source`** — explicit provider override: `'claude'` or `'copilot'`. Use when auto-detection fails or for non-standard directory layouts.
 
 Every table includes a **`source`** column (`'claude'` or `'copilot'`) as the first column.
 
@@ -247,66 +244,32 @@ Filter them with `WHERE message_type != '_parse_error'`.
 ## Testing
 
 ```bash
-# Build and run all 100+ assertion-driven tests + Python smoke test
+# Build and run all SQLLogicTest assertions
 make test
 ```
 
-The test suite covers:
-- Row count invariants for all 5 functions × 2 sources
-- Column validation (NULLs, formats, value ranges)
-- Cross-source UNION queries and source isolation
-- Provider auto-detection and explicit source override
-- Cross-table join correctness
-- Parse error detection
-- Basic benchmark checks
+199 pinned assertions across 13 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
 
-Test data:
-- `test/data/` — Synthetic Claude data (3 projects, 6 sessions, 180 conversations)
-- `test/data_copilot/` — Synthetic Copilot data (4 sessions, 53 events, all 16 event types)
-
-## Examples (Marimo Notebooks)
+## Building from Source
 
 ```bash
-# Run with test data (default)
-marimo run examples/explore.py
+# First time: configure build environment
+make configure
 
-# Run with your own data
-AGENT_DATA_PATH=~/.claude COPILOT_DATA_PATH=~/.copilot marimo run examples/explore.py
+# Build debug extension
+make debug
+
+# Run tests
+make test
 ```
 
-The notebook loads both sources via UNION ALL and provides:
-- Overview dashboard with row counts by source
-- Message type distribution by source
-- Session explorer with source prefix
-- Todo status by source
-- Cross-source session activity summary
+The compiled extension is at `build/debug/agent_data.duckdb_extension` (or `build/release/` for `make release`).
 
-## Architecture
-
-The extension uses a **generic VTab framework** (`vtab.rs`) with provider auto-detection:
-
+```bash
+# Load directly from a local build
+duckdb -unsigned -c "LOAD 'build/debug/agent_data.duckdb_extension'; FROM read_conversations();"
 ```
-src/
-├── lib.rs              # Entry point (registers 5 functions)
-├── vtab.rs             # Generic VTab framework (TableFunc trait)
-├── detect.rs           # Provider enum + auto-detection logic
-├── types/
-│   ├── mod.rs          # Re-exports
-│   ├── claude.rs       # Claude JSON/JSONL serde types
-│   └── copilot.rs      # Copilot event serde types
-├── utils.rs            # Path resolution, file discovery (both providers)
-├── conversations.rs    # Unified conversations (Claude + Copilot)
-├── plans.rs            # Unified plans
-├── todos.rs            # Unified todos
-├── history.rs          # Unified history
-└── stats.rs            # Stats (Claude only)
-```
-
-Each module implements the `TableFunc` trait:
-1. **`columns()`** — column definitions
-2. **`load_rows(path, source)`** — auto-detect provider, dispatch to Claude or Copilot loader
-3. **`write_row(output, idx, row)`** — write one row to DuckDB vectors
 
 ## License
 
-See LICENSE file for details.
+MIT — see [LICENSE](LICENSE).
