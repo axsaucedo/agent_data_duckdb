@@ -1,6 +1,6 @@
 extension:
   name: agent_data
-  description: Read AI coding agent session data (Claude Code, GitHub Copilot CLI) as DuckDB tables
+  description: A DuckDB extension written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
   version: 0.1.0
   language: Rust
   build: cargo
@@ -16,39 +16,100 @@ repo:
 
 docs:
   hello_world: |
-    -- Read Claude Code conversations from default path (~/.claude)
-    SELECT session_id, message_type, message_role, tool_name
-    FROM read_conversations()
+    -- How many conversations have I had with Claude?
+    SELECT COUNT(DISTINCT session_id) AS sessions,
+           COUNT(*) AS total_messages
+    -- Calling the functions without params defaults to Claude folder.
+    FROM read_conversations();
+
+    -- What did I work on this week?
+    SELECT date, message_count, tool_call_count
+    FROM read_stats()
+    ORDER BY date DESC
+    LIMIT 7;
+
+    -- Which tools does github copilot use most?
+    SELECT tool_name, COUNT(*) AS uses
+    FROM read_conversations('~/.copilot')
+    WHERE tool_name IS NOT NULL
+    GROUP BY tool_name
+    ORDER BY uses DESC
     LIMIT 10;
 
-    -- Read GitHub Copilot CLI conversations
-    SELECT session_id, message_type, message_role, tool_name
-    FROM read_conversations(path='~/.copilot')
-    LIMIT 10;
+    -- What are my active todos in my custom claude path?
+    SELECT content, status
+    FROM read_todos('~/work_folder/.claude')
+    WHERE status != 'completed'
+    ORDER BY item_index;
 
-    -- Count sessions and messages per agent
+    -- Compare activity across Claude and Copilot
     SELECT source, COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS messages
     FROM (
-        SELECT * FROM read_conversations()
+        SELECT * FROM read_conversations(path='~/.claude')
         UNION ALL
         SELECT * FROM read_conversations(path='~/.copilot')
     )
     GROUP BY source;
 
   extended_description: |
-    The `agent_data` extension provides 5 table functions for reading AI coding agent
-    session data directly into DuckDB:
 
-    - `read_conversations([path], [source])` — conversation messages and tool calls
-    - `read_plans([path], [source])` — plan/strategy markdown files
-    - `read_todos([path], [source])` — todo/checklist items with status
-    - `read_history([path], [source])` — command/prompt history
-    - `read_stats([path], [source])` — daily activity statistics (Claude only)
+    **Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`) and [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`).
 
-    **Auto-detection:** The provider (Claude or Copilot) is automatically detected from
-    the directory structure. Pass `source='claude'` or `source='copilot'` to override.
+    > OpenAI Codex and Gemini CLI Coming Soon™.
 
-    **Unified schema:** All functions return a unified schema with a `source` column,
-    allowing cross-agent queries via `UNION ALL`.
+    Written in 🦀 Rust.
+
+    ### Default Behavior
+
+    When called **without arguments**, each function reads from its provider's default path:
+
+    | Function | Default path | Detected as |
+    |----------|-------------|-------------|
+    | `read_conversations()` | `~/.claude` | Claude Code |
+    | `read_plans()` | `~/.claude` | Claude Code |
+    | `read_todos()` | `~/.claude` | Claude Code |
+    | `read_history()` | `~/.claude` | Claude Code |
+    | `read_stats()` | `~/.claude` | Claude Code |
+
+    To read Copilot data, pass the path explicitly:
+
+    ```sql
+    FROM read_conversations(path='~/.copilot');
+    ```
+
+    ### Available Functions
+
+    All functions accept two optional parameters:
+    - **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`projects/` → Claude, `session-state/` → Copilot).
+    - **`source`** — explicit provider override: `'claude'` or `'copilot'`. Use when auto-detection fails or for non-standard directory layouts.
+
+    Every table includes a **`source`** column (`'claude'` or `'copilot'`) as the first column.
+
+    > `read_conversations([path (opt)], [source (opt)])`
+
+    ## Join Keys
+
+    Tables can be joined within the same source:
+
+    ```sql
+    -- Conversations ↔ History (via session_id)
+    SELECT c.*, h.display
+    FROM read_conversations(path='~/.claude') c
+    JOIN read_history(path='~/.claude') h ON c.session_id = h.session_id;
+
+    -- Cross-source: always filter by source
+    SELECT * FROM (
+        SELECT * FROM read_conversations(path='~/.claude')
+        UNION ALL
+        SELECT * FROM read_conversations(path='~/.copilot')
+    ) WHERE source = 'copilot';
+    ```
+
+    | Join | Left Key | Right Key | Notes |
+    |------|----------|-----------|-------|
+    | conversations <-> history | `session_id` | `session_id` | Same source only |
+    | conversations <-> todos | `session_id` | `session_id` | Same source only |
+    | conversations <-> plans | `slug` | `plan_name` | Claude only |
+    | conversations <-> history | `project_path` | `project` | Claude only |
 
     For full documentation, see the [GitHub repository](https://github.com/axsaucedo/duckdb-claude-ext).

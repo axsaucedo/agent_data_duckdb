@@ -1,10 +1,12 @@
 # agent_data — DuckDB Extension for AI Agent Session Data
 
-A [DuckDB](https://duckdb.org/) extension for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
+A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
 **Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`) and [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`).
 
 > OpenAI Codex and Gemini CLI Coming Soon™.
+
+Written in 🦀 Rust.
 
 ## Installing
 
