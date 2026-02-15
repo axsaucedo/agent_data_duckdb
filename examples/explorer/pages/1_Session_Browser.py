@@ -257,13 +257,20 @@ if st.session_state.get("_prev_source") != source_choice:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# MAIN AREA — Filters & Session Table (in expander for auto-collapse)
+# VIEW SWITCHING: Session Browser  ←→  Session Timeline
 # ═══════════════════════════════════════════════════════════════════════════
 
-# Determine if a session is already selected to auto-collapse the picker
+# Increment a counter each time user clicks "Pick Another Session" to
+# generate a fresh dataframe widget key and reset its selection state.
+if "picker_reset_counter" not in st.session_state:
+    st.session_state["picker_reset_counter"] = 0
+
 has_selection = st.session_state.get("selected_session_key") is not None
 
-with st.expander("📋 Session Browser — Select a session", expanded=not has_selection):
+if not has_selection:
+    # ── SESSION BROWSER VIEW ────────────────────────────────────────────
+    st.markdown("### 📋 Session Browser")
+
     paths_to_load = []
     if source_choice in ("Claude", "Both"):
         paths_to_load.append(claude_path)
@@ -373,8 +380,8 @@ with st.expander("📋 Session Browser — Select a session", expanded=not has_s
         "First Message": st.column_config.TextColumn(width="large"),
     }
 
-    # Build a stable key that resets selection when filters change
-    _filter_sig = f"{source_choice}_{search_text}_{exclude_text}_{sorted(selected_projects)}_{min_events}"
+    # Use reset counter in key so "Pick Another Session" creates a fresh widget
+    _table_key = f"session_table_{st.session_state['picker_reset_counter']}"
 
     st.caption(f"**{len(display_df)}** sessions — click a row to open")
     selection = st.dataframe(
@@ -385,7 +392,7 @@ with st.expander("📋 Session Browser — Select a session", expanded=not has_s
         selection_mode="single-row",
         on_select="rerun",
         column_config=col_config,
-        key=f"session_table_{_filter_sig}",
+        key=_table_key,
     )
 
     selected_rows = selection.selection.rows if selection.selection else []
@@ -397,18 +404,30 @@ with st.expander("📋 Session Browser — Select a session", expanded=not has_s
             session_id = sel_row["session_id"]
             source_path = sel_row["_path"]
             new_key = f"{source_path}|{session_id}"
-            if st.session_state.get("selected_session_key") != new_key:
-                st.session_state["selected_session_key"] = new_key
-                st.session_state["selected_event_idx"] = None
-                st.rerun()  # rerun so expander collapses
+            st.session_state["selected_session_key"] = new_key
+            st.session_state["selected_event_idx"] = None
+            st.rerun()
 
-# ── Resolve selected session from state ─────────────────────────────────
-sess_key = st.session_state.get("selected_session_key")
-if not sess_key:
-    st.info("⬆ Select a session from the table above to browse events.")
+    # Stop here — don't render timeline when no session selected
     st.stop()
 
+# ═══════════════════════════════════════════════════════════════════════════
+# SESSION TIMELINE VIEW (only rendered when a session is selected)
+# ═══════════════════════════════════════════════════════════════════════════
+
+sess_key = st.session_state["selected_session_key"]
 source_path, session_id = sess_key.split("|", 1)
+
+# ── Heading with "Pick Another Session" button ──────────────────────────
+hcol1, hcol2 = st.columns([6, 2])
+with hcol1:
+    st.markdown("### 📋 Session Timeline")
+with hcol2:
+    if st.button("🔄 Pick Another Session", type="primary", use_container_width=True):
+        st.session_state.pop("selected_session_key", None)
+        st.session_state["selected_event_idx"] = None
+        st.session_state["picker_reset_counter"] += 1
+        st.rerun()
 
 # Load metadata for the selected session
 mdf = load_session_index(source_path)
@@ -491,7 +510,6 @@ events_df["_delta_ms"] = deltas
 events_df["_offset_ms"] = offsets
 
 # ── Filter bar ──────────────────────────────────────────────────────────
-st.markdown("### Session Timeline")
 
 all_types = sorted(events_df["message_type"].dropna().unique())
 default_types = [t for t in ["user", "assistant"] if t in all_types]
