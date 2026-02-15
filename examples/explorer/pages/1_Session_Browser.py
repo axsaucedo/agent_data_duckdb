@@ -373,6 +373,9 @@ with st.expander("📋 Session Browser — Select a session", expanded=not has_s
         "First Message": st.column_config.TextColumn(width="large"),
     }
 
+    # Build a stable key that resets selection when filters change
+    _filter_sig = f"{source_choice}_{search_text}_{exclude_text}_{sorted(selected_projects)}_{min_events}"
+
     st.caption(f"**{len(display_df)}** sessions — click a row to open")
     selection = st.dataframe(
         display_df,
@@ -382,22 +385,22 @@ with st.expander("📋 Session Browser — Select a session", expanded=not has_s
         selection_mode="single-row",
         on_select="rerun",
         column_config=col_config,
-        key=f"session_table_{source_choice}",
+        key=f"session_table_{_filter_sig}",
     )
 
     selected_rows = selection.selection.rows if selection.selection else []
 
     if selected_rows:
         row_idx = selected_rows[0]
-        orig_idx = filtered.index[row_idx]
-        sel_row = filtered.loc[orig_idx]
-        session_id = sel_row["session_id"]
-        source_path = sel_row["_path"]
-        new_key = f"{source_path}|{session_id}"
-        if st.session_state.get("selected_session_key") != new_key:
-            st.session_state["selected_session_key"] = new_key
-            st.session_state["selected_event_idx"] = None
-            st.rerun()  # rerun so expander collapses
+        if row_idx < len(filtered):
+            sel_row = filtered.iloc[row_idx]
+            session_id = sel_row["session_id"]
+            source_path = sel_row["_path"]
+            new_key = f"{source_path}|{session_id}"
+            if st.session_state.get("selected_session_key") != new_key:
+                st.session_state["selected_session_key"] = new_key
+                st.session_state["selected_event_idx"] = None
+                st.rerun()  # rerun so expander collapses
 
 # ── Resolve selected session from state ─────────────────────────────────
 sess_key = st.session_state.get("selected_session_key")
@@ -493,7 +496,7 @@ st.markdown("### Session Timeline")
 all_types = sorted(events_df["message_type"].dropna().unique())
 default_types = [t for t in ["user", "assistant"] if t in all_types]
 
-fc = st.columns([4, 4, 2])
+fc = st.columns([4, 4])
 with fc[0]:
     search_q = st.text_input(
         "Search events",
@@ -507,11 +510,6 @@ with fc[1]:
         default=default_types,
         placeholder="All types",
     )
-with fc[2]:
-    st.markdown("&nbsp;", unsafe_allow_html=True)  # spacer for label alignment
-    if st.button("✕ Clear selection", key="clear_timeline", use_container_width=True):
-        st.session_state["selected_event_idx"] = None
-        st.rerun()
 
 # Apply filters
 filt = events_df.copy()
