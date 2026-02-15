@@ -31,9 +31,11 @@ ON c.session_id = h.session_id;
 </td>
 <td>
 
-<h4>Or try the <a href="">Streamlit Example</a></h4>
+<h4>Or try the <a href="https://github.com/axsaucedo/agent_data_duckdb/tree/main/examples/explorer">Streamlit Example</a></h4>
 
+<a href="https://github.com/axsaucedo/agent_data_duckdb/tree/main/examples/explorer">
 <img src="docs/streamlit.gif">
+</a>
 
 </td>
 </tr>

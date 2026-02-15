@@ -5,6 +5,8 @@ of AI coding agent session data using the
 [`agent_data`](https://community-extensions.duckdb.org/extensions/agent_data.html)
 DuckDB extension.
 
+![](../../docs/streamlit.gif)
+
 ## Setup
 
 ```bash
