@@ -1,8 +1,7 @@
 """Session Browser — Chronicle-style session explorer.
 
-Browse sessions with a chat-like event timeline and detail panel.
-Matches the Copilot Chronicle UI pattern: timestamps, colored pill badges,
-truncated content previews, and a right-side detail panel.
+Browse sessions with a filterable table, chat-like event timeline,
+and a right-side detail panel.
 """
 
 import streamlit as st
@@ -110,7 +109,7 @@ def format_duration(ms) -> str:
     return f"{h}h {m}m"
 
 
-def summarize_event(row: pd.Series, max_len: int = 150) -> str:
+def summarize_event(row: pd.Series, max_len: int = 500) -> str:
     msg_type = str(row.get("message_type", ""))
     content = str(row.get("message_content", "") or "").replace("\n", " ").strip()
     tool = str(row.get("tool_name", "") or "")
@@ -161,12 +160,9 @@ st.markdown("""
 .event-card {
     padding: 10px 14px;
     border-bottom: 1px solid rgba(255,255,255,0.06);
-    cursor: pointer;
     border-radius: 6px;
     margin-bottom: 2px;
-    transition: background 0.12s;
 }
-.event-card:hover { background: rgba(255,255,255,0.04); }
 .event-card.selected {
     background: rgba(59,130,246,0.15);
     border-left: 3px solid #3b82f6;
@@ -218,35 +214,34 @@ st.markdown("""
     color: #64748b;
     margin-top: 8px;
 }
-.session-card {
-    padding: 8px 12px;
-    border: 1px solid rgba(255,255,255,0.08);
-    border-radius: 8px;
-    margin-bottom: 6px;
-    cursor: pointer;
-}
-.session-card:hover { background: rgba(255,255,255,0.04); }
 </style>
 """, unsafe_allow_html=True)
 
 
+# ── Sidebar: display settings only ─────────────────────────────────────────
+st.sidebar.header("📋 Settings")
+truncate_content = st.sidebar.checkbox("Truncate long strings", value=True)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
-# SIDEBAR: Source & project filter
+# MAIN AREA — Filters & Session Table
 # ═══════════════════════════════════════════════════════════════════════════
 
-st.sidebar.header("📋 Session Browser")
+st.markdown("### 📋 Session Browser")
 
-source_choice = st.sidebar.radio(
+# ── Source selector ─────────────────────────────────────────────────────
+source_choice = st.radio(
     "Data source",
     ["Claude", "Copilot", "Both"],
     index=0,
     horizontal=True,
 )
 
-# Reset session selection when source changes
+# Reset when source changes
 if st.session_state.get("_prev_source") != source_choice:
     st.session_state["_prev_source"] = source_choice
     st.session_state["selected_event_idx"] = None
+    st.session_state.pop("selected_sessions", None)
 
 paths_to_load = []
 if source_choice in ("Claude", "Both"):
@@ -267,118 +262,138 @@ if not all_sessions:
     st.info(f"Claude: `{claude_path}` | Copilot: `{copilot_path}`")
     st.stop()
 
-sessions_df = pd.concat(all_sessions, ignore_index=True).sort_values("first_ts", ascending=False)
+sessions_df = pd.concat(all_sessions, ignore_index=True).sort_values(
+    "first_ts", ascending=False
+)
 
-# ── Sidebar: project filter (trimmed names) ─────────────────────────────
-st.sidebar.divider()
-
+# ── Filters row ─────────────────────────────────────────────────────────
 # Build trimmed project names
 raw_projects = sorted(sessions_df["project_path"].dropna().unique())
-project_short_map = {}  # short_name → full_path
+project_short_map = {}
 for fp in raw_projects:
     short = str(fp).split("/")[-1] if "/" in str(fp) else str(fp)
-    # Handle duplicates by adding parent
     if short in project_short_map and project_short_map[short] != fp:
         parts = str(fp).rsplit("/", 2)
         short = "/".join(parts[-2:]) if len(parts) >= 2 else short
     project_short_map[short] = fp
 
-project_options = ["All projects"] + list(project_short_map.keys())
-selected_project_short = st.sidebar.selectbox("Project", project_options)
+fc1, fc2 = st.columns(2)
+with fc1:
+    search_text = st.text_input(
+        "🔍 Search",
+        placeholder="Search by project, message, session ID…",
+        label_visibility="collapsed",
+    )
+with fc2:
+    exclude_text = st.text_input(
+        "🚫 Exclude",
+        placeholder="Exclude terms…",
+        label_visibility="collapsed",
+    )
 
-if selected_project_short != "All projects":
-    full_project_path = project_short_map[selected_project_short]
-    sessions_df = sessions_df[sessions_df["project_path"] == full_project_path]
+fc3, fc4, fc5 = st.columns([3, 2, 2])
+with fc3:
+    selected_projects = st.multiselect(
+        "Projects",
+        options=list(project_short_map.keys()),
+        placeholder="All projects",
+    )
+with fc4:
+    max_events_val = sessions_df["event_count"].max()
+    max_events_val = int(max_events_val) if _is_valid(max_events_val) else 1
+    min_events = st.number_input("Min events", min_value=0, max_value=max(max_events_val, 1), value=0)
+with fc5:
+    if st.button("✕ Clear Selection & Filters", use_container_width=True):
+        st.session_state.pop("selected_sessions", None)
+        st.session_state["selected_event_idx"] = None
+        st.rerun()
 
-max_events = sessions_df["event_count"].max()
-max_events = int(max_events) if _is_valid(max_events) else 1
-min_events = st.sidebar.slider("Min events", 0, max(max_events, 1), 0)
+# Apply filters
+filtered = sessions_df.copy()
+if selected_projects:
+    full_paths = [project_short_map[s] for s in selected_projects]
+    filtered = filtered[filtered["project_path"].isin(full_paths)]
 if min_events > 0:
-    sessions_df = sessions_df[sessions_df["event_count"] >= min_events]
+    filtered = filtered[filtered["event_count"] >= min_events]
+if search_text:
+    q = search_text.lower()
+    mask = (
+        filtered["project_path"].fillna("").str.lower().str.contains(q, na=False)
+        | filtered["session_id"].fillna("").str.lower().str.contains(q, na=False)
+        | filtered["first_user_message"].fillna("").str.lower().str.contains(q, na=False)
+    )
+    filtered = filtered[mask]
+if exclude_text:
+    q = exclude_text.lower()
+    mask = ~(
+        filtered["project_path"].fillna("").str.lower().str.contains(q, na=False)
+        | filtered["session_id"].fillna("").str.lower().str.contains(q, na=False)
+        | filtered["first_user_message"].fillna("").str.lower().str.contains(q, na=False)
+    )
+    filtered = filtered[mask]
 
-# ── Sidebar: truncation controls ────────────────────────────────────────
-st.sidebar.divider()
-truncate_content = st.sidebar.checkbox("Truncate long strings", value=True)
-
-if sessions_df.empty:
+if filtered.empty:
     st.info("No sessions match filters.")
     st.stop()
 
+# ── Session table ───────────────────────────────────────────────────────
+# Prepare display dataframe
+display_df = pd.DataFrame({
+    "Source": filtered["source"],
+    "Last Active": filtered["last_ts"].apply(
+        lambda x: str(x)[:16] if _is_valid(x) else "—"
+    ),
+    "Events": filtered["event_count"].astype(int),
+    "Project": filtered["project_path"].apply(
+        lambda x: str(x).split("/")[-1] if _is_valid(x) and "/" in str(x) else str(x) if _is_valid(x) else "—"
+    ),
+    "First Message": filtered["first_user_message"].apply(
+        lambda x: str(x).replace("\n", " ")[:100] if _is_valid(x) and str(x) not in ("None", "nan") else "—"
+    ),
+})
+display_df.index = filtered.index
 
-# ═══════════════════════════════════════════════════════════════════════════
-# MAIN AREA — Session selector (above timeline)
-# ═══════════════════════════════════════════════════════════════════════════
-
-st.markdown("### Select Session")
-
-# Search bar for sessions
-session_search = st.text_input(
-    "🔍 Search sessions",
-    placeholder="Search by project, message, session ID…",
-    label_visibility="collapsed",
+st.caption(f"**{len(display_df)}** sessions")
+selection = st.dataframe(
+    display_df,
+    use_container_width=True,
+    hide_index=True,
+    selection_mode="multi-row",
+    on_select="rerun",
+    key=f"session_table_{source_choice}",
 )
 
-# Filter sessions by search
-if session_search:
-    q = session_search.lower()
-    mask = (
-        sessions_df["project_path"].fillna("").str.lower().str.contains(q, na=False) |
-        sessions_df["session_id"].fillna("").str.lower().str.contains(q, na=False) |
-        sessions_df["first_user_message"].fillna("").str.lower().str.contains(q, na=False)
-    )
-    filtered_sessions = sessions_df[mask]
-else:
-    filtered_sessions = sessions_df
+selected_rows = selection.selection.rows if selection.selection else []
 
-# Build session options for selectbox
-session_options = []
-session_id_map = {}  # label → (session_id, path, source)
-for _, row in filtered_sessions.iterrows():
-    proj = str(row["project_path"] or "").split("/")[-1] or "unknown"
-    ts_val = row["first_ts"]
-    ts_str = str(ts_val)[:16] if _is_valid(ts_val) else "?"
-    events = int(row["event_count"]) if _is_valid(row["event_count"]) else 0
-    src = str(row.get("source", ""))
-
-    # First user message preview
-    first_msg = str(row.get("first_user_message", "") or "").replace("\n", " ").strip()
-    if not first_msg or first_msg in ("None", "nan"):
-        first_msg = "(no user message)"
-    first_msg = first_msg[:80] + "…" if len(first_msg) > 80 else first_msg
-
-    label = f"[{src}] {proj} — {events} events — {ts_str} — {first_msg}"
-    session_options.append(label)
-    session_id_map[label] = (row["session_id"], row["_path"], row["source"])
-
-if not session_options:
-    st.info("No sessions match search.")
+if not selected_rows:
+    st.info("⬆ Select one or more sessions from the table above to browse events.")
     st.stop()
 
-selected_label = st.selectbox(
-    "Session",
-    session_options,
-    key=f"session_select_{source_choice}",
-    label_visibility="collapsed",
-)
+# Map selected rows to actual session data
+sel_indices = [display_df.index[r] for r in selected_rows]
+sel_sessions = filtered.loc[sel_indices]
 
-session_id, source_path, session_source = session_id_map[selected_label]
+# ── Session metadata (collapsible) for first selected ───────────────────
+sel_row = sel_sessions.iloc[0]
+session_id = sel_row["session_id"]
+source_path = sel_row["_path"]
 
-# Session metadata (collapsible)
-sel_row = filtered_sessions[filtered_sessions["session_id"] == session_id].iloc[0]
-with st.expander("Session Metadata", expanded=False):
-    meta_cols = st.columns(3)
-    with meta_cols[0]:
+with st.expander(
+    f"Session Metadata — {sel_row.get('source', '')} / {str(sel_row.get('project_path', '')).split('/')[-1]}",
+    expanded=False,
+):
+    mc = st.columns(3)
+    with mc[0]:
         st.markdown(f"**Source:** {sel_row.get('source', '')}")
         st.markdown(f"**Session ID:** `{session_id}`")
-        proj_full = sel_row.get("project_path", "")
-        st.markdown(f"**Project:** `{proj_full}`")
-    with meta_cols[1]:
+        st.markdown(f"**Project:** `{sel_row.get('project_path', '')}`")
+    with mc[1]:
         st.markdown(f"**First seen:** {sel_row.get('first_ts', '')}")
         st.markdown(f"**Last seen:** {sel_row.get('last_ts', '')}")
         slug = sel_row.get("slug", "")
         if _is_valid(slug):
             st.markdown(f"**Slug:** {slug}")
-    with meta_cols[2]:
+    with mc[2]:
         ec = sel_row.get("event_count", 0)
         tc = sel_row.get("tool_calls", 0)
         it = sel_row.get("total_input_tokens", 0)
@@ -387,9 +402,14 @@ with st.expander("Session Metadata", expanded=False):
         st.markdown(f"**Tool calls:** {tc}")
         st.markdown(f"**Tokens:** {it:,} in / {ot:,} out")
 
+# If multiple sessions selected, show tabs
+if len(sel_sessions) > 1:
+    st.info(f"📌 {len(sel_sessions)} sessions selected — showing first session's timeline. "
+            f"Multi-session comparison coming soon.")
+
 
 # ═══════════════════════════════════════════════════════════════════════════
-# PHASE 2: Event timeline
+# EVENT TIMELINE
 # ═══════════════════════════════════════════════════════════════════════════
 
 events_df = load_session_events(source_path, session_id)
@@ -426,31 +446,38 @@ events_df["_offset_ms"] = offsets
 st.markdown("---")
 st.markdown("### Session Timeline")
 
-fc = st.columns([3, 3, 2, 2])
-with fc[0]:
-    search_q = st.text_input("🔍 Search events", "", placeholder="message, tool name…",
-                              label_visibility="collapsed")
 all_types = sorted(events_df["message_type"].dropna().unique())
+default_types = [t for t in ["user", "assistant"] if t in all_types]
+
+fc = st.columns([4, 4, 2])
+with fc[0]:
+    search_q = st.text_input(
+        "🔍 Search events", "",
+        placeholder="message, tool name…",
+        label_visibility="collapsed",
+    )
 with fc[1]:
-    type_filter = st.selectbox("Type filter", ["All"] + list(all_types), label_visibility="collapsed")
+    type_filter = st.multiselect(
+        "Message types",
+        options=all_types,
+        default=default_types,
+        placeholder="All types",
+    )
 with fc[2]:
-    hide_noise = st.checkbox("Hide turn/truncation", value=False)
-with fc[3]:
-    if st.button("✕ Clear"):
+    if st.button("✕ Clear", key="clear_timeline"):
+        st.session_state["selected_event_idx"] = None
         st.rerun()
 
 # Apply filters
 filt = events_df.copy()
-if type_filter != "All":
-    filt = filt[filt["message_type"] == type_filter]
-if hide_noise:
-    filt = filt[~filt["message_type"].isin({"turn_start", "turn_end", "truncation", "compaction_start", "compaction_complete"})]
+if type_filter:
+    filt = filt[filt["message_type"].isin(type_filter)]
 if search_q:
     q = search_q.lower()
     mask = (
-        filt["message_content"].fillna("").str.lower().str.contains(q, na=False) |
-        filt["tool_name"].fillna("").str.lower().str.contains(q, na=False) |
-        filt["message_type"].fillna("").str.lower().str.contains(q, na=False)
+        filt["message_content"].fillna("").str.lower().str.contains(q, na=False)
+        | filt["tool_name"].fillna("").str.lower().str.contains(q, na=False)
+        | filt["message_type"].fillna("").str.lower().str.contains(q, na=False)
     )
     filt = filt[mask]
 
@@ -479,7 +506,6 @@ with col_list:
     if filt.empty:
         st.info("No events match filters.")
     else:
-        # Render Chronicle-style event cards using buttons for click
         current_day = None
         for idx, row in filt.iterrows():
             ts = row["_ts"]
@@ -491,7 +517,7 @@ with col_list:
                     current_day = day
                     st.markdown(f'<div class="day-sep">📅 {day}</div>', unsafe_allow_html=True)
 
-            # Time info
+            # Build card content
             ts_utc = ts.strftime("%H:%M:%S.") + ts.strftime("%f")[:3] if _is_valid(ts) else "—"
             delta_val = row.get("_delta_ms")
             delta_s = format_delta(delta_val) if _is_valid(delta_val) else ""
@@ -500,12 +526,11 @@ with col_list:
 
             msg_type = str(row.get("message_type", ""))
             badge = badge_html(msg_type)
-            summary = html.escape(summarize_event(row, max_len=120))
+            summary = html.escape(summarize_event(row, max_len=500))
 
             is_selected = st.session_state.get("selected_event_idx") == idx
             sel_class = "selected" if is_selected else ""
 
-            # Render card as HTML + a button to select
             card_html = (
                 f'<div class="event-card {sel_class}">'
                 f'  <div class="event-time">'
@@ -519,8 +544,9 @@ with col_list:
             )
             st.markdown(card_html, unsafe_allow_html=True)
 
-            if st.button("Select", key=f"sel_{idx}", use_container_width=True,
-                         type="primary" if is_selected else "secondary"):
+            # Clickable button styled as the card area
+            btn_type = "primary" if is_selected else "secondary"
+            if st.button("▸", key=f"sel_{idx}", type=btn_type):
                 st.session_state["selected_event_idx"] = idx
                 st.rerun()
 
@@ -539,6 +565,10 @@ with col_detail:
         tool = str(event.get("tool_name", "") or "")
         tool_input_str = str(event.get("tool_input", "") or "")
         max_display = 2000 if truncate_content else 50000
+
+        # Copy button for full message
+        if content:
+            st.code(content[:max_display] + ("…" if len(content) > max_display else ""), language=None)
 
         # Type-specific rendering
         if msg_type == "user":
@@ -559,14 +589,14 @@ with col_detail:
                         st.code(disp, language="json")
                     except (json.JSONDecodeError, TypeError):
                         st.code(tool_input_str[:500], language=None)
-            if content:
+            if content and not tool:
                 st.markdown('<div class="detail-label">RESPONSE</div>', unsafe_allow_html=True)
                 display = content[:max_display] + "…" if len(content) > max_display else content
                 st.text(display)
 
         elif msg_type in ("tool_start", "tool_result"):
-            label = "TOOL EXECUTION" if msg_type == "tool_start" else "TOOL RESULT"
-            st.markdown(f'<div class="detail-label">{label}</div>', unsafe_allow_html=True)
+            label_text = "TOOL EXECUTION" if msg_type == "tool_start" else "TOOL RESULT"
+            st.markdown(f'<div class="detail-label">{label_text}</div>', unsafe_allow_html=True)
             if tool:
                 st.code(tool, language=None)
             if tool_input_str and tool_input_str not in ("None", ""):
@@ -595,7 +625,7 @@ with col_detail:
         # Metadata
         st.divider()
         st.markdown('<div class="detail-label">METADATA</div>', unsafe_allow_html=True)
-        for label, col_name in [
+        for label_text, col_name in [
             ("UUID", "uuid"), ("Parent UUID", "parent_uuid"),
             ("Timestamp", "timestamp"), ("Model", "model"),
             ("Tool", "tool_name"), ("Tool Use ID", "tool_use_id"),
@@ -606,7 +636,7 @@ with col_detail:
         ]:
             val = event.get(col_name)
             if _is_valid(val) and str(val) not in ("nan", "None", "", "<NA>"):
-                st.text(f"{label}: {val}")
+                st.text(f"{label_text}: {val}")
 
         # Raw JSON
         with st.expander("Raw JSON"):
@@ -628,4 +658,4 @@ with col_detail:
                 disp_json = disp_json[:5000] + "\n…[truncated]"
             st.code(disp_json, language="json")
     else:
-        st.info("← Click **Select** on an event to see details")
+        st.info("← Click **▸** on an event to see details")
