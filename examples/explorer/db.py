@@ -1,19 +1,33 @@
 """Shared DuckDB connection and data loading for the agent_data explorer."""
 
 import os
+import logging
 import duckdb
 import pandas as pd
 import streamlit as st
 
+logger = logging.getLogger(__name__)
+
 
 def get_connection() -> duckdb.DuckDBPyConnection:
-    """Return a cached DuckDB connection with the agent_data extension loaded."""
-    if "duckdb_con" not in st.session_state:
-        con = duckdb.connect()
-        con.execute("INSTALL agent_data FROM community")
-        con.execute("LOAD agent_data")
-        st.session_state["duckdb_con"] = con
-    return st.session_state["duckdb_con"]
+    """Return a cached DuckDB connection with the agent_data extension loaded.
+    
+    Re-creates the connection if the existing one is stale (e.g. after browser refresh).
+    """
+    con = st.session_state.get("duckdb_con")
+    if con is not None:
+        try:
+            con.execute("SELECT 1")
+            return con
+        except Exception:
+            logger.warning("Stale DuckDB connection detected, reconnecting")
+            st.cache_data.clear()
+            st.session_state.pop("duckdb_con", None)
+    con = duckdb.connect()
+    con.execute("INSTALL agent_data FROM community")
+    con.execute("LOAD agent_data")
+    st.session_state["duckdb_con"] = con
+    return con
 
 
 def get_data_paths() -> tuple[str, str]:
@@ -30,11 +44,19 @@ def run_query(sql: str) -> pd.DataFrame:
 
 
 def _safe_query(sql: str) -> pd.DataFrame:
-    """Execute query, return empty DataFrame on error."""
+    """Execute query with retry on connection failure. Logs errors."""
     try:
         return run_query(sql)
-    except Exception:
-        return pd.DataFrame()
+    except Exception as e:
+        logger.warning("Query failed (%s), retrying with fresh connection", e)
+        # Connection may be stale — force reconnect and clear cache
+        st.session_state.pop("duckdb_con", None)
+        st.cache_data.clear()
+        try:
+            return run_query(sql)
+        except Exception as e2:
+            logger.error("Query failed after retry: %s", e2)
+            return pd.DataFrame()
 
 
 @st.cache_data(ttl=120, show_spinner="Loading sessions…")
