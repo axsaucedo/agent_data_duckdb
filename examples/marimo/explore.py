@@ -27,28 +27,25 @@ def _(mo):
     import os
 
     # Configuration: change these to explore your own data
-    DATA_PATH = os.environ.get("AGENT_DATA_PATH", "test/data")
-    COPILOT_PATH = os.environ.get("COPILOT_DATA_PATH", "test/data_copilot")
-    EXTENSION_PATH = os.environ.get(
-        "AGENT_DATA_EXT", "build/debug/agent_data.duckdb_extension"
-    )
+    DATA_PATH = os.environ.get("AGENT_DATA_PATH", "~/.claude")
+    COPILOT_PATH = os.environ.get("COPILOT_DATA_PATH", "~/.copilot")
 
     mo.md(
         f"""
     **Primary data:** `{DATA_PATH}`
     **Copilot data:** `{COPILOT_PATH}`
-    **Extension:** `{EXTENSION_PATH}`
     """
     )
-    return COPILOT_PATH, DATA_PATH, EXTENSION_PATH, os
+    return COPILOT_PATH, DATA_PATH, os
 
 
 @app.cell
-def _(COPILOT_PATH, DATA_PATH, EXTENSION_PATH):
+def _(COPILOT_PATH, DATA_PATH):
     import duckdb
 
-    con = duckdb.connect(config={"allow_unsigned_extensions": "true"})
-    con.execute(f"LOAD '{EXTENSION_PATH}'")
+    con = duckdb.connect()
+    con.execute("INSTALL agent_data FROM community")
+    con.execute("LOAD agent_data")
 
     def load_table(name, path):
         return con.execute(f"SELECT * FROM read_{name}(path='{path}')").df()
@@ -66,7 +63,7 @@ def _(COPILOT_PATH, DATA_PATH, EXTENSION_PATH):
     todos = load_union("todos")
     history = load_union("history")
     stats = load_union("stats")
-    return con, conversations, duckdb, history, load_table, load_union, plans, stats, todos
+    return con, conversations, duckdb, history, load_union, plans, stats, todos
 
 
 @app.cell

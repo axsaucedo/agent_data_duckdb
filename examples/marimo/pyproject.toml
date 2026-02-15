@@ -1,0 +1,12 @@
+[project]
+name = "agent-data-marimo-explorer"
+version = "0.1.0"
+description = "Interactive marimo notebook for exploring AI agent session data via the agent_data DuckDB extension"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "marimo>=0.19",
+    "duckdb>=1.4",
+    "pandas>=2.0",
+    "numpy>=2.0",
+]
