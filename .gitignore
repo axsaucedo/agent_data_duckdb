@@ -109,3 +109,8 @@ tmp
 examples/__marimo__/
 claude_raw
 community-extensions
+REPORT.md
+examples/*/.venv/
+examples/*/.envrc
+examples/*/uv.lock
+examples/*/__marimo__/
