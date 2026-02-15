@@ -247,6 +247,30 @@ When a JSONL line or JSON file cannot be parsed, the extension emits a row with:
 
 Filter them with `WHERE message_type != '_parse_error'`.
 
+## Examples
+
+### Marimo Notebook
+
+Interactive notebook for exploring agent data:
+
+```bash
+cd examples/marimo
+uv sync
+marimo edit explore.py
+```
+
+### Streamlit Explorer
+
+Multi-page web application with session browser and SQL query interface:
+
+```bash
+cd examples/explorer
+uv sync
+streamlit run app.py
+```
+
+See [examples/explorer/README.md](examples/explorer/README.md) for details.
+
 ## Testing
 
 ```bash
