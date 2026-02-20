@@ -4,23 +4,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.widgets import Header, Footer, TabbedContent, TabPane, Static
 
-
-class OverviewPane(Static):
-    """Placeholder for Overview screen."""
-    def compose(self) -> ComposeResult:
-        yield Static("Overview — loading…", id="overview-content")
-
-
-class BrowserPane(Static):
-    """Placeholder for Session Browser screen."""
-    def compose(self) -> ComposeResult:
-        yield Static("Session Browser — loading…", id="browser-content")
-
-
-class SQLPane(Static):
-    """Placeholder for SQL Query screen."""
-    def compose(self) -> ComposeResult:
-        yield Static("SQL Query — loading…", id="sql-content")
+from agent_chronicle.screens.overview import OverviewScreen
 
 
 class AgentChronicle(App):
@@ -47,11 +31,11 @@ class AgentChronicle(App):
         yield Header(show_clock=True)
         with TabbedContent(id="tabs"):
             with TabPane("📊 Overview", id="overview"):
-                yield OverviewPane()
+                yield OverviewScreen(self.claude_path, self.copilot_path)
             with TabPane("📋 Browser", id="browser"):
-                yield BrowserPane()
+                yield Static("Session Browser — loading…", id="browser-content")
             with TabPane("🔎 SQL", id="sql"):
-                yield SQLPane()
+                yield Static("SQL Query — loading…", id="sql-content")
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
