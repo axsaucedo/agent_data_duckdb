@@ -1,0 +1,103 @@
+/* Agent Chronicle — Dark Slate Theme */
+
+Screen {
+    background: #0f172a;
+}
+
+Header {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+Footer {
+    background: #1e293b;
+    color: #94a3b8;
+}
+
+TabbedContent {
+    background: #0f172a;
+}
+
+TabPane {
+    background: #0f172a;
+    padding: 1 2;
+}
+
+ContentSwitcher {
+    background: #0f172a;
+}
+
+Static {
+    color: #e2e8f0;
+}
+
+DataTable {
+    background: #0f172a;
+    color: #e2e8f0;
+}
+
+DataTable > .datatable--header {
+    background: #1e293b;
+    color: #a3e635;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: #334155;
+    color: #e2e8f0;
+}
+
+Input {
+    background: #1e293b;
+    color: #e2e8f0;
+    border: tall #334155;
+}
+
+Input:focus {
+    border: tall #a3e635;
+}
+
+TextArea {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+Button {
+    background: #334155;
+    color: #e2e8f0;
+    border: tall #475569;
+}
+
+Button:hover {
+    background: #475569;
+}
+
+Button.-primary {
+    background: #a3e635;
+    color: #0f172a;
+    border: tall #a3e635;
+}
+
+Select {
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+/* Metric cards */
+.metric-card {
+    background: #1e293b;
+    border: tall #334155;
+    padding: 1 2;
+    margin: 0 1;
+    height: 5;
+    width: 1fr;
+}
+
+.metric-card .metric-value {
+    text-style: bold;
+    color: #a3e635;
+}
+
+.metric-card .metric-label {
+    color: #94a3b8;
+}
