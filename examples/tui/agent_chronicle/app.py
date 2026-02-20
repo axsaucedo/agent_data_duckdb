@@ -6,6 +6,7 @@ from textual.widgets import Header, Footer, TabbedContent, TabPane, Static
 
 from agent_chronicle.screens.overview import OverviewScreen
 from agent_chronicle.screens.browser import BrowserScreen
+from agent_chronicle.screens.sql import SQLScreen
 
 
 class AgentChronicle(App):
@@ -36,7 +37,7 @@ class AgentChronicle(App):
             with TabPane("📋 Browser", id="browser"):
                 yield BrowserScreen(self.claude_path, self.copilot_path)
             with TabPane("🔎 SQL", id="sql"):
-                yield Static("SQL Query — loading…", id="sql-content")
+                yield SQLScreen(self.claude_path, self.copilot_path)
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
