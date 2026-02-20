@@ -5,6 +5,7 @@ from textual.binding import Binding
 from textual.widgets import Header, Footer, TabbedContent, TabPane, Static
 
 from agent_chronicle.screens.overview import OverviewScreen
+from agent_chronicle.screens.browser import BrowserScreen
 
 
 class AgentChronicle(App):
@@ -33,7 +34,7 @@ class AgentChronicle(App):
             with TabPane("📊 Overview", id="overview"):
                 yield OverviewScreen(self.claude_path, self.copilot_path)
             with TabPane("📋 Browser", id="browser"):
-                yield Static("Session Browser — loading…", id="browser-content")
+                yield BrowserScreen(self.claude_path, self.copilot_path)
             with TabPane("🔎 SQL", id="sql"):
                 yield Static("SQL Query — loading…", id="sql-content")
         yield Footer()
