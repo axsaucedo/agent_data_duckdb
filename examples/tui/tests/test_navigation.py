@@ -46,8 +46,8 @@ class TestNavigation:
             assert tabs.active == "overview"
 
     @pytest.mark.asyncio
-    async def test_help_notification(self, app):
+    async def test_help_overlay(self, app):
         async with app.run_test() as pilot:
             await pilot.press("question_mark")
-            # Help is shown via notification, just ensure no crash
-            assert True
+            # Help screen should be pushed
+            assert len(app.screen_stack) > 1

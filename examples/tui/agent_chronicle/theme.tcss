@@ -27,6 +27,24 @@ ContentSwitcher {
     background: #0f172a;
 }
 
+Tabs {
+    background: #1e293b;
+}
+
+Tab {
+    background: #1e293b;
+    color: #94a3b8;
+}
+
+Tab.-active {
+    color: #a3e635;
+    text-style: bold;
+}
+
+Tab:hover {
+    color: #e2e8f0;
+}
+
 Static {
     color: #e2e8f0;
 }
@@ -45,6 +63,14 @@ DataTable > .datatable--header {
 DataTable > .datatable--cursor {
     background: #334155;
     color: #e2e8f0;
+}
+
+DataTable > .datatable--even-row {
+    background: #0f172a;
+}
+
+DataTable > .datatable--odd-row {
+    background: #131c2e;
 }
 
 Input {
@@ -100,4 +126,9 @@ Select {
 
 .metric-card .metric-label {
     color: #94a3b8;
+}
+
+/* Help screen overlay */
+HelpScreen {
+    background: rgba(15, 23, 42, 0.85);
 }

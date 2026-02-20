@@ -2,11 +2,66 @@
 
 from textual.app import App, ComposeResult
 from textual.binding import Binding
+from textual.screen import ModalScreen
 from textual.widgets import Header, Footer, TabbedContent, TabPane, Static
+from textual.containers import Vertical
 
 from agent_chronicle.screens.overview import OverviewScreen
 from agent_chronicle.screens.browser import BrowserScreen
 from agent_chronicle.screens.sql import SQLScreen
+
+
+HELP_TEXT = """\
+[bold #a3e635]Agent Chronicle — Keyboard Shortcuts[/bold #a3e635]
+
+[bold]Navigation[/bold]
+  [#a3e635]1[/#a3e635]          Overview tab
+  [#a3e635]2[/#a3e635]          Session Browser tab
+  [#a3e635]3[/#a3e635]          SQL Query tab
+  [#a3e635]Tab[/#a3e635]        Next tab
+  [#a3e635]Shift+Tab[/#a3e635]  Previous tab
+
+[bold]Session Browser[/bold]
+  [#a3e635]↑ ↓[/#a3e635]       Navigate rows
+  [#a3e635]Enter[/#a3e635]      Open session / select event
+  [#a3e635]Escape[/#a3e635]     Back to session list
+
+[bold]SQL Query[/bold]
+  [#a3e635]F5[/#a3e635]         Execute query
+
+[bold]General[/bold]
+  [#a3e635]?[/#a3e635]          Toggle this help
+  [#a3e635]q[/#a3e635]          Quit
+
+[dim]Press Escape or ? to close[/dim]
+"""
+
+
+class HelpScreen(ModalScreen):
+    """Modal help overlay."""
+
+    DEFAULT_CSS = """
+    HelpScreen {
+        align: center middle;
+    }
+    #help-dialog {
+        background: #1e293b;
+        border: tall #a3e635;
+        padding: 2 4;
+        width: 60;
+        height: auto;
+        max-height: 30;
+    }
+    """
+
+    BINDINGS = [
+        Binding("escape", "dismiss", "Close"),
+        Binding("question_mark", "dismiss", "Close"),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="help-dialog"):
+            yield Static(HELP_TEXT)
 
 
 class AgentChronicle(App):
@@ -47,12 +102,4 @@ class AgentChronicle(App):
 
     def action_toggle_help(self) -> None:
         """Toggle help overlay."""
-        self.notify(
-            "Keyboard shortcuts:\n"
-            "  1/2/3 — Switch tabs\n"
-            "  Tab — Next tab\n"
-            "  q — Quit\n"
-            "  ? — This help",
-            title="Help",
-            timeout=8,
-        )
+        self.push_screen(HelpScreen())
