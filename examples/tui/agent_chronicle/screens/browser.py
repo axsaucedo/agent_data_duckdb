@@ -7,10 +7,9 @@ from datetime import datetime
 
 import pandas as pd
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.message import Message
-from textual.widgets import Static, DataTable, Input, Button, Label
-from textual.widget import Widget
+from textual.widgets import Static, DataTable, Input, Button
 
 from agent_chronicle.db import load_session_index, load_session_events
 from agent_chronicle.constants import BADGE_COLORS, DEFAULT_BADGE_COLORS
@@ -116,7 +115,6 @@ def summarize_event(row: pd.Series, max_len: int = 120) -> str:
 
 
 def badge_text(msg_type: str) -> str:
-    """Return styled badge text for Rich rendering."""
     fg, _ = BADGE_COLORS.get(msg_type, DEFAULT_BADGE_COLORS)
     return f"[{fg}][{msg_type}][/{fg}]"
 
@@ -129,71 +127,71 @@ class BrowserScreen(Static):
 
     DEFAULT_CSS = """
     BrowserScreen {
-        height: auto;
+        height: 1fr;
     }
     #browser-title {
         text-style: bold;
-        color: #a3e635;
+        color: #a6e3a1;
         padding: 0 0 1 0;
+    }
+    #table-view {
+        height: 1fr;
     }
     #filter-row {
         height: 3;
-        margin: 0 0 1 0;
+        margin: 0 0 0 0;
     }
     #filter-input {
         width: 1fr;
     }
     #session-table {
-        height: 12;
-        margin: 0 0 1 0;
+        height: 1fr;
     }
     #session-count {
-        color: #94a3b8;
-        padding: 0 0 1 0;
+        color: #a6adc8;
+        height: 1;
+    }
+    #timeline-view {
+        height: 1fr;
     }
     #timeline-container {
-        height: auto;
-        min-height: 15;
+        height: 1fr;
     }
     #event-list {
         width: 2fr;
-        height: 24;
-        overflow-y: auto;
+        height: 1fr;
     }
     #detail-panel {
         width: 3fr;
-        height: 24;
+        height: 1fr;
         overflow-y: auto;
         padding: 0 1;
-    }
-    .event-item {
-        padding: 0 1;
-        margin: 0 0 0 0;
-    }
-    .event-item:hover {
-        background: #334155;
-    }
-    .day-separator {
-        color: #64748b;
-        text-style: bold;
-        padding: 1 0 0 0;
+        background: #313244;
+        border-left: tall #45475a;
     }
     #back-button {
-        margin: 0 0 1 0;
+        margin: 0 0 0 0;
+        dock: top;
     }
     #session-meta {
-        color: #94a3b8;
-        padding: 0 0 1 0;
+        color: #a6adc8;
+        height: 1;
     }
     #stats-bar {
-        color: #94a3b8;
-        padding: 0 0 0 0;
-    }
-    #detail-placeholder {
-        color: #64748b;
-        padding: 2;
+        color: #6c7086;
+        height: 1;
     }
     """
+
+    BINDINGS = [
+        Binding("j", "cursor_down", "Down", show=False),
+        Binding("k", "cursor_up", "Up", show=False),
+        Binding("l", "open_selection", "Open", show=False),
+        Binding("h", "go_back", "Back", show=False),
+        Binding("escape", "go_back", "Back", show=False),
+        Binding("enter", "open_selection", "Open", show=False),
+        Binding("slash", "focus_filter", "Filter", show=False),
+    ]
 
     def __init__(self, claude_path: str, copilot_path: str, **kwargs):
         super().__init__(**kwargs)
@@ -204,7 +202,6 @@ class BrowserScreen(Static):
         self._events_df: pd.DataFrame = pd.DataFrame()
         self._selected_path: str | None = None
         self._selected_session_id: str | None = None
-        self._selected_event_idx: int | None = None
         self._view = "table"  # "table" or "timeline"
 
     def compose(self) -> ComposeResult:
@@ -212,38 +209,22 @@ class BrowserScreen(Static):
         # Table view
         with Vertical(id="table-view"):
             with Horizontal(id="filter-row"):
-                yield Input(placeholder="Filter sessions…", id="filter-input")
-            yield Static("", id="session-count")
+                yield Input(placeholder="Filter sessions… (press /)", id="filter-input")
+            yield Static("Loading sessions…", id="session-count")
             yield DataTable(id="session-table")
         # Timeline view (hidden initially)
         with Vertical(id="timeline-view"):
-            yield Button("← Back to Sessions", id="back-button", variant="default")
+            yield Button("← Back  [h]", id="back-button", variant="default")
             yield Static("", id="session-meta")
             yield Static("", id="stats-bar")
             with Horizontal(id="timeline-container"):
                 yield DataTable(id="event-list")
-                yield Static("← Select an event to see details", id="detail-panel")
+                yield Static("[dim #6c7086]← Select an event to see details[/dim #6c7086]", id="detail-panel")
 
     def on_mount(self) -> None:
-        self._load_sessions()
         self._show_table_view()
-
-    def _show_table_view(self) -> None:
-        self._view = "table"
-        self._selected_session_id = None
-        try:
-            self.query_one("#table-view").display = True
-            self.query_one("#timeline-view").display = False
-        except Exception:
-            pass
-
-    def _show_timeline_view(self) -> None:
-        self._view = "timeline"
-        try:
-            self.query_one("#table-view").display = False
-            self.query_one("#timeline-view").display = True
-        except Exception:
-            pass
+        # Defer loading so UI renders instantly
+        self.set_timer(0.05, self._load_sessions)
 
     def _load_sessions(self) -> None:
         """Load session index from both sources."""
@@ -266,8 +247,25 @@ class BrowserScreen(Static):
 
         self._apply_filter("")
 
+    def _show_table_view(self) -> None:
+        self._view = "table"
+        self._selected_session_id = None
+        try:
+            self.query_one("#table-view").display = True
+            self.query_one("#timeline-view").display = False
+        except Exception:
+            pass
+
+    def _show_timeline_view(self) -> None:
+        self._view = "timeline"
+        try:
+            self.query_one("#table-view").display = False
+            self.query_one("#timeline-view").display = True
+            self.query_one("#event-list", DataTable).focus()
+        except Exception:
+            pass
+
     def _apply_filter(self, search: str) -> None:
-        """Filter sessions and update the table."""
         df = self._sessions_df.copy()
         if search:
             q = search.lower()
@@ -281,7 +279,6 @@ class BrowserScreen(Static):
         self._populate_table()
 
     def _populate_table(self) -> None:
-        """Fill the DataTable with session data."""
         try:
             table = self.query_one("#session-table", DataTable)
         except Exception:
@@ -309,7 +306,7 @@ class BrowserScreen(Static):
 
         try:
             count_widget = self.query_one("#session-count", Static)
-            count_widget.update(f"{len(self._filtered_df)} sessions")
+            count_widget.update(f"[#a6adc8]{len(self._filtered_df)} sessions[/#a6adc8]")
         except Exception:
             pass
 
@@ -317,31 +314,84 @@ class BrowserScreen(Static):
         if event.input.id == "filter-input":
             self._apply_filter(event.value)
 
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        """Handle row selection in session table or event list."""
-        table_id = event.data_table.id
+    # ── Vim-style actions ───────────────────────────────────────
 
-        if table_id == "session-table":
-            row_idx = event.cursor_row
-            if row_idx < len(self._filtered_df):
-                sel = self._filtered_df.iloc[row_idx]
-                self._selected_path = sel["_path"]
-                self._selected_session_id = sel["session_id"]
-                self._load_timeline()
-                self._show_timeline_view()
+    def action_cursor_down(self) -> None:
+        table = self._active_table()
+        if table:
+            table.action_cursor_down()
 
-        elif table_id == "event-list":
+    def action_cursor_up(self) -> None:
+        table = self._active_table()
+        if table:
+            table.action_cursor_up()
+
+    def action_open_selection(self) -> None:
+        if self._view == "table":
+            self._open_highlighted_session()
+        else:
+            self._show_highlighted_event()
+
+    def action_go_back(self) -> None:
+        if self._view == "timeline":
+            self._show_table_view()
+            try:
+                self.query_one("#session-table", DataTable).focus()
+            except Exception:
+                pass
+
+    def action_focus_filter(self) -> None:
+        try:
+            self.query_one("#filter-input", Input).focus()
+        except Exception:
+            pass
+
+    def _active_table(self) -> DataTable | None:
+        tid = "session-table" if self._view == "table" else "event-list"
+        try:
+            return self.query_one(f"#{tid}", DataTable)
+        except Exception:
+            return None
+
+    def _open_highlighted_session(self) -> None:
+        try:
+            table = self.query_one("#session-table", DataTable)
+            row_idx = table.cursor_row
+        except Exception:
+            return
+        if row_idx < len(self._filtered_df):
+            sel = self._filtered_df.iloc[row_idx]
+            self._selected_path = sel["_path"]
+            self._selected_session_id = sel["session_id"]
+            self._load_timeline()
+            self._show_timeline_view()
+
+    def _show_highlighted_event(self) -> None:
+        try:
+            table = self.query_one("#event-list", DataTable)
+            row_idx = table.cursor_row
+        except Exception:
+            return
+        if row_idx < len(self._events_df):
+            self._show_event_detail(row_idx)
+
+    # Show event detail on cursor move (single-click / arrow key)
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        if event.data_table.id == "event-list" and not self._events_df.empty:
             row_idx = event.cursor_row
             if row_idx < len(self._events_df):
-                self._selected_event_idx = row_idx
                 self._show_event_detail(row_idx)
+
+    # Enter/double-click on session table opens timeline
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        if event.data_table.id == "session-table":
+            self._open_highlighted_session()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "back-button":
             self._show_table_view()
 
     def _load_timeline(self) -> None:
-        """Load events for the selected session."""
         if not self._selected_path or not self._selected_session_id:
             return
 
@@ -350,7 +400,6 @@ class BrowserScreen(Static):
         if self._events_df.empty:
             return
 
-        # Parse timestamps and compute deltas
         self._events_df["_ts"] = self._events_df["timestamp"].apply(parse_ts)
 
         valid_ts = self._events_df["_ts"].apply(_is_valid)
@@ -372,13 +421,12 @@ class BrowserScreen(Static):
         self._events_df["_delta_ms"] = deltas
         self._events_df["_offset_ms"] = offsets
 
-        # Update session metadata
         try:
             dur = (last_ts - first_ts).total_seconds() * 1000 if first_ts and last_ts else 0
-            meta_text = f"Session: {self._selected_session_id[:12]}… | Events: {len(self._events_df)} | Duration: {format_duration(dur)}"
+            meta_text = f"[bold]Session:[/bold] {self._selected_session_id[:16]}… │ [bold]Events:[/bold] {len(self._events_df)} │ [bold]Duration:[/bold] {format_duration(dur)}"
             self.query_one("#session-meta", Static).update(meta_text)
             self.query_one("#stats-bar", Static).update(
-                f"{len(self._events_df)} events | Duration: {format_duration(dur)}"
+                f"[dim]{len(self._events_df)} events │ {format_duration(dur)}[/dim]"
             )
         except Exception:
             pass
@@ -386,7 +434,6 @@ class BrowserScreen(Static):
         self._populate_event_list()
 
     def _populate_event_list(self) -> None:
-        """Fill the event list DataTable."""
         try:
             table = self.query_one("#event-list", DataTable)
         except Exception:
@@ -406,7 +453,6 @@ class BrowserScreen(Static):
             table.add_row(time_col, msg_type, summary)
 
     def _show_event_detail(self, idx: int) -> None:
-        """Show event detail in the right panel."""
         if idx >= len(self._events_df):
             return
 
@@ -418,16 +464,15 @@ class BrowserScreen(Static):
 
         lines = []
         fg, _ = BADGE_COLORS.get(msg_type, DEFAULT_BADGE_COLORS)
-        lines.append(f"[bold {fg}][{msg_type}][/bold {fg}]")
+        lines.append(f"[bold {fg}]▎ {msg_type.upper()}[/bold {fg}]")
         lines.append("")
 
-        # Type-specific rendering
         if msg_type == "user":
-            lines.append("[bold]USER MESSAGE[/bold]")
+            lines.append("[bold #89b4fa]USER MESSAGE[/bold #89b4fa]")
             lines.append(content[:2000] if content else "(empty)")
         elif msg_type == "assistant":
             if tool:
-                lines.append(f"[bold]TOOL CALL[/bold]: {tool}")
+                lines.append(f"[bold #89b4fa]TOOL CALL[/bold #89b4fa]: {tool}")
                 if tool_input and tool_input not in ("None", ""):
                     try:
                         parsed = json.loads(tool_input)
@@ -435,21 +480,20 @@ class BrowserScreen(Static):
                     except (json.JSONDecodeError, TypeError):
                         lines.append(tool_input[:500])
             elif content:
-                lines.append("[bold]RESPONSE[/bold]")
+                lines.append("[bold #89b4fa]RESPONSE[/bold #89b4fa]")
                 lines.append(content[:2000])
         elif msg_type in ("tool_start", "tool_result"):
             label = "TOOL EXECUTION" if msg_type == "tool_start" else "TOOL RESULT"
-            lines.append(f"[bold]{label}[/bold]: {tool}")
+            lines.append(f"[bold #89b4fa]{label}[/bold #89b4fa]: {tool}")
             if content:
                 lines.append(content[:1000])
         else:
-            lines.append(f"[bold]{msg_type.upper()}[/bold]")
+            lines.append(f"[bold #89b4fa]{msg_type.upper()}[/bold #89b4fa]")
             if content:
                 lines.append(content[:1000])
 
-        # Metadata
         lines.append("")
-        lines.append("[bold]METADATA[/bold]")
+        lines.append("[bold #6c7086]─── METADATA ───[/bold #6c7086]")
         for label, col in [
             ("Timestamp", "timestamp"), ("Model", "model"),
             ("Tool", "tool_name"), ("Input Tokens", "input_tokens"),
@@ -457,7 +501,7 @@ class BrowserScreen(Static):
         ]:
             val = event.get(col)
             if _is_valid(val) and str(val) not in ("nan", "None", "", "<NA>"):
-                lines.append(f"  {label}: {val}")
+                lines.append(f"  [#a6adc8]{label}:[/#a6adc8] {val}")
 
         try:
             panel = self.query_one("#detail-panel", Static)

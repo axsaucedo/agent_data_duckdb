@@ -30,6 +30,7 @@ class TestBrowserScreen:
     async def test_session_table_has_columns(self, app):
         async with app.run_test() as pilot:
             await pilot.press("2")
+            await pilot.pause()
             table = app.query_one("#session-table", DataTable)
             assert len(table.columns) == 5
 
@@ -37,6 +38,7 @@ class TestBrowserScreen:
     async def test_session_table_has_rows(self, app):
         async with app.run_test() as pilot:
             await pilot.press("2")
+            await pilot.pause()
             table = app.query_one("#session-table", DataTable)
             assert table.row_count > 0
 
@@ -46,3 +48,14 @@ class TestBrowserScreen:
             await pilot.press("2")
             inp = app.query_one("#filter-input", Input)
             assert inp is not None
+
+    @pytest.mark.asyncio
+    async def test_vim_bindings_exist(self, app):
+        """Verify browser screen has vim binding actions."""
+        async with app.run_test() as pilot:
+            await pilot.press("2")
+            browser = app.query_one(BrowserScreen)
+            assert hasattr(browser, "action_cursor_down")
+            assert hasattr(browser, "action_cursor_up")
+            assert hasattr(browser, "action_open_selection")
+            assert hasattr(browser, "action_go_back")

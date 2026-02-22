@@ -1,134 +1,164 @@
-/* Agent Chronicle — Dark Slate Theme */
+/* Agent Chronicle — Catppuccin Mocha-inspired Theme */
+
+/* ── Base ─────────────────────────────────────────── */
 
 Screen {
-    background: #0f172a;
+    background: #1e1e2e;
 }
 
 Header {
-    background: #1e293b;
-    color: #e2e8f0;
+    background: #181825;
+    color: #cdd6f4;
 }
 
 Footer {
-    background: #1e293b;
-    color: #94a3b8;
+    background: #181825;
+    color: #a6adc8;
 }
+
+/* ── Tabs ─────────────────────────────────────────── */
 
 TabbedContent {
-    background: #0f172a;
-}
-
-TabPane {
-    background: #0f172a;
-    padding: 1 2;
+    background: #1e1e2e;
+    height: 1fr;
 }
 
 ContentSwitcher {
-    background: #0f172a;
+    background: #1e1e2e;
+    height: 1fr;
+}
+
+TabPane {
+    background: #1e1e2e;
+    padding: 1 2;
+    height: 1fr;
 }
 
 Tabs {
-    background: #1e293b;
+    background: #181825;
+    dock: top;
 }
 
 Tab {
-    background: #1e293b;
-    color: #94a3b8;
+    background: #181825;
+    color: #6c7086;
+    padding: 0 2;
 }
 
 Tab.-active {
-    color: #a3e635;
+    color: #a6e3a1;
     text-style: bold;
+    background: #313244;
 }
 
 Tab:hover {
-    color: #e2e8f0;
+    color: #cdd6f4;
 }
+
+/* ── Typography ───────────────────────────────────── */
 
 Static {
-    color: #e2e8f0;
+    color: #cdd6f4;
 }
 
+/* ── DataTable ────────────────────────────────────── */
+
 DataTable {
-    background: #0f172a;
-    color: #e2e8f0;
+    background: #1e1e2e;
+    color: #cdd6f4;
+    height: 1fr;
 }
 
 DataTable > .datatable--header {
-    background: #1e293b;
-    color: #a3e635;
+    background: #313244;
+    color: #a6e3a1;
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: #334155;
-    color: #e2e8f0;
+    background: #45475a;
+    color: #cdd6f4;
+    text-style: bold;
 }
 
 DataTable > .datatable--even-row {
-    background: #0f172a;
+    background: #1e1e2e;
 }
 
 DataTable > .datatable--odd-row {
-    background: #131c2e;
+    background: #232336;
 }
 
+DataTable:focus > .datatable--cursor {
+    background: #585b70;
+    color: #cdd6f4;
+}
+
+/* ── Input / TextArea ─────────────────────────────── */
+
 Input {
-    background: #1e293b;
-    color: #e2e8f0;
-    border: tall #334155;
+    background: #313244;
+    color: #cdd6f4;
+    border: tall #45475a;
 }
 
 Input:focus {
-    border: tall #a3e635;
+    border: tall #a6e3a1;
 }
 
 TextArea {
-    background: #1e293b;
-    color: #e2e8f0;
+    background: #313244;
+    color: #cdd6f4;
 }
 
+/* ── Buttons ──────────────────────────────────────── */
+
 Button {
-    background: #334155;
-    color: #e2e8f0;
-    border: tall #475569;
+    background: #45475a;
+    color: #cdd6f4;
+    border: tall #585b70;
 }
 
 Button:hover {
-    background: #475569;
+    background: #585b70;
+    color: #cdd6f4;
 }
 
 Button.-primary {
-    background: #a3e635;
-    color: #0f172a;
-    border: tall #a3e635;
+    background: #a6e3a1;
+    color: #1e1e2e;
+    border: tall #a6e3a1;
+    text-style: bold;
+}
+
+Button.-primary:hover {
+    background: #94e2d5;
 }
 
 Select {
-    background: #1e293b;
-    color: #e2e8f0;
+    background: #313244;
+    color: #cdd6f4;
 }
 
-/* Metric cards */
-.metric-card {
-    background: #1e293b;
-    border: tall #334155;
-    padding: 1 2;
-    margin: 0 1;
-    height: 5;
-    width: 1fr;
-}
+/* ── Help overlay ─────────────────────────────────── */
 
-.metric-card .metric-value {
-    text-style: bold;
-    color: #a3e635;
-}
-
-.metric-card .metric-label {
-    color: #94a3b8;
-}
-
-/* Help screen overlay */
 HelpScreen {
-    background: rgba(15, 23, 42, 0.85);
+    background: rgba(17, 17, 27, 0.88);
+    align: center middle;
+}
+
+#help-dialog {
+    background: #313244;
+    border: heavy #a6e3a1;
+    padding: 2 4;
+    width: 72;
+    height: auto;
+    max-height: 36;
+}
+
+/* ── Loading indicator ────────────────────────────── */
+
+.loading-indicator {
+    color: #6c7086;
+    text-style: italic;
 }

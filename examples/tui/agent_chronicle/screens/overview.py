@@ -1,7 +1,7 @@
 """Overview dashboard screen with metrics and stats."""
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static
 
 from agent_chronicle.db import get_connection, union_from, _safe_query
@@ -12,12 +12,19 @@ class MetricCard(Static):
 
     DEFAULT_CSS = """
     MetricCard {
-        background: #1e293b;
-        border: tall #334155;
+        background: #313244;
+        border: round #45475a;
         padding: 1 2;
         margin: 0 1;
         height: 5;
         width: 1fr;
+    }
+    .metric-value {
+        text-style: bold;
+        color: #a6e3a1;
+    }
+    .metric-label {
+        color: #a6adc8;
     }
     """
 
@@ -44,16 +51,17 @@ class StatsSection(Static):
 
     DEFAULT_CSS = """
     StatsSection {
-        background: #1e293b;
-        border: tall #334155;
+        background: #313244;
+        border: round #45475a;
         padding: 1 2;
         margin: 1 1;
         height: auto;
         min-height: 5;
+        width: 1fr;
     }
     """
 
-    def __init__(self, title: str, content: str = "Loading…", **kwargs):
+    def __init__(self, title: str, content: str = "[dim #6c7086]Loading…[/dim #6c7086]", **kwargs):
         super().__init__(**kwargs)
         self._title = title
         self._content = content
@@ -76,11 +84,14 @@ class OverviewScreen(Static):
 
     DEFAULT_CSS = """
     OverviewScreen {
-        height: auto;
+        height: 1fr;
+    }
+    #overview-scroll {
+        height: 1fr;
     }
     #overview-title {
         text-style: bold;
-        color: #a3e635;
+        color: #a6e3a1;
         padding: 0 0 1 0;
     }
     #metrics-row {
@@ -102,32 +113,33 @@ class OverviewScreen(Static):
         self.copilot_path = copilot_path
 
     def compose(self) -> ComposeResult:
-        yield Static("🤖 Agent Chronicle — Overview", id="overview-title")
-        with Horizontal(id="metrics-row"):
-            yield MetricCard("Claude Sessions", "—", id="metric-claude-sessions")
-            yield MetricCard("Claude Messages", "—", id="metric-claude-messages")
-            yield MetricCard("Copilot Sessions", "—", id="metric-copilot-sessions")
-            yield MetricCard("Copilot Messages", "—", id="metric-copilot-messages")
-        with Vertical(id="stats-grid"):
-            with Horizontal(classes="stats-row"):
-                yield StatsSection("📊 Messages by Source", "Loading…", id="stats-source")
-                yield StatsSection("💬 Message Types (Top 10)", "Loading…", id="stats-types")
-            with Horizontal(classes="stats-row"):
-                yield StatsSection("📁 Top Projects", "Loading…", id="stats-projects")
-                yield StatsSection("🔧 Top Tools", "Loading…", id="stats-tools")
-            with Horizontal(classes="stats-row"):
-                yield StatsSection("🔢 Token Usage", "Loading…", id="stats-tokens")
-                yield StatsSection("📈 Recent Activity", "Loading…", id="stats-activity")
+        with VerticalScroll(id="overview-scroll"):
+            yield Static("🤖 Agent Chronicle — Overview", id="overview-title")
+            with Horizontal(id="metrics-row"):
+                yield MetricCard("Claude Sessions", "…", id="metric-claude-sessions")
+                yield MetricCard("Claude Messages", "…", id="metric-claude-messages")
+                yield MetricCard("Copilot Sessions", "…", id="metric-copilot-sessions")
+                yield MetricCard("Copilot Messages", "…", id="metric-copilot-messages")
+            with Vertical(id="stats-grid"):
+                with Horizontal(classes="stats-row"):
+                    yield StatsSection("📊 Messages by Source", id="stats-source")
+                    yield StatsSection("💬 Message Types (Top 10)", id="stats-types")
+                with Horizontal(classes="stats-row"):
+                    yield StatsSection("📁 Top Projects", id="stats-projects")
+                    yield StatsSection("🔧 Top Tools", id="stats-tools")
+                with Horizontal(classes="stats-row"):
+                    yield StatsSection("🔢 Token Usage", id="stats-tokens")
+                    yield StatsSection("📈 Recent Activity", id="stats-activity")
 
     def on_mount(self) -> None:
-        self._load_data_sync()
+        # Defer loading so UI renders instantly
+        self.set_timer(0.05, self._load_data)
 
-    def _load_data_sync(self) -> None:
-        """Load overview data synchronously (fast with cached queries)."""
+    def _load_data(self) -> None:
+        """Load overview data (deferred so UI paints first)."""
         con = get_connection()
         FROM = union_from(self.claude_path, self.copilot_path, "read_conversations")
 
-        # Metrics
         try:
             metrics_df = _safe_query(f"""
                 SELECT source,
@@ -146,7 +158,6 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-        # Messages by source
         try:
             src_df = _safe_query(f"SELECT source, COUNT(*) AS messages FROM {FROM} t GROUP BY source")
             if not src_df.empty:
@@ -155,7 +166,6 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-        # Message types
         try:
             types_df = _safe_query(f"""
                 SELECT message_type, COUNT(*) AS count FROM {FROM} t
@@ -168,7 +178,6 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-        # Top projects
         try:
             proj_df = _safe_query(f"""
                 SELECT COALESCE(SPLIT_PART(project_path, '/', -1), 'unknown') AS project,
@@ -183,7 +192,6 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-        # Top tools
         try:
             tools_df = _safe_query(f"""
                 SELECT tool_name, COUNT(*) AS uses FROM {FROM} t
@@ -196,7 +204,6 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-        # Token usage
         try:
             tok_df = _safe_query(f"""
                 SELECT source,
@@ -214,7 +221,6 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-        # Recent activity
         try:
             act_df = _safe_query(f"""
                 SELECT CAST(timestamp AS DATE) AS day, COUNT(*) AS messages

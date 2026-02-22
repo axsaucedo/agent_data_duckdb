@@ -12,47 +12,39 @@ from agent_chronicle.screens.sql import SQLScreen
 
 
 HELP_TEXT = """\
-[bold #a3e635]Agent Chronicle — Keyboard Shortcuts[/bold #a3e635]
+[bold #a6e3a1]⌨  Agent Chronicle — Keyboard Reference[/bold #a6e3a1]
 
-[bold]Navigation[/bold]
-  [#a3e635]1[/#a3e635]          Overview tab
-  [#a3e635]2[/#a3e635]          Session Browser tab
-  [#a3e635]3[/#a3e635]          SQL Query tab
-  [#a3e635]Tab[/#a3e635]        Next tab
-  [#a3e635]Shift+Tab[/#a3e635]  Previous tab
+[bold #89b4fa]Navigation[/bold #89b4fa]
+  [#a6e3a1]1  2  3[/#a6e3a1]       Jump to Overview / Browser / SQL tab
+  [#a6e3a1]H  L[/#a6e3a1]          Previous / Next tab  (Shift+h / Shift+l)
+  [#a6e3a1]Tab[/#a6e3a1]           Cycle focus forward
+  [#a6e3a1]Shift+Tab[/#a6e3a1]     Cycle focus backward
 
-[bold]Session Browser[/bold]
-  [#a3e635]↑ ↓[/#a3e635]       Navigate rows
-  [#a3e635]Enter[/#a3e635]      Open session / select event
-  [#a3e635]Escape[/#a3e635]     Back to session list
+[bold #89b4fa]Vim Motions (in tables)[/bold #89b4fa]
+  [#a6e3a1]j  k[/#a6e3a1]          Move cursor down / up
+  [#a6e3a1]l  Enter[/#a6e3a1]      Open / drill into selection
+  [#a6e3a1]h  Escape[/#a6e3a1]     Go back / close detail
 
-[bold]SQL Query[/bold]
-  [#a3e635]F5[/#a3e635]         Execute query
+[bold #89b4fa]Session Browser[/bold #89b4fa]
+  [#a6e3a1]j  k[/#a6e3a1]          Navigate sessions or events
+  [#a6e3a1]l  Enter[/#a6e3a1]      Open session → timeline → event detail
+  [#a6e3a1]h  Escape[/#a6e3a1]     Back to session list
+  [#a6e3a1]/[/#a6e3a1]             Focus filter input
 
-[bold]General[/bold]
-  [#a3e635]?[/#a3e635]          Toggle this help
-  [#a3e635]q[/#a3e635]          Quit
+[bold #89b4fa]SQL Query[/bold #89b4fa]
+  [#a6e3a1]F5[/#a6e3a1]            Execute query
+  [#a6e3a1]Ctrl+Enter[/#a6e3a1]    Execute query (alt)
 
-[dim]Press Escape or ? to close[/dim]
+[bold #89b4fa]General[/bold #89b4fa]
+  [#a6e3a1]?[/#a6e3a1]             Toggle this help
+  [#a6e3a1]q[/#a6e3a1]             Quit
+
+[dim #6c7086]Press ? or Escape to close[/dim #6c7086]
 """
 
 
 class HelpScreen(ModalScreen):
     """Modal help overlay."""
-
-    DEFAULT_CSS = """
-    HelpScreen {
-        align: center middle;
-    }
-    #help-dialog {
-        background: #1e293b;
-        border: tall #a3e635;
-        padding: 2 4;
-        width: 60;
-        height: auto;
-        max-height: 30;
-    }
-    """
 
     BINDINGS = [
         Binding("escape", "dismiss", "Close"),
@@ -75,6 +67,8 @@ class AgentChronicle(App):
         Binding("1", "switch_tab('overview')", "Overview", show=True),
         Binding("2", "switch_tab('browser')", "Browser", show=True),
         Binding("3", "switch_tab('sql')", "SQL", show=True),
+        Binding("H", "prev_tab", "←Tab", show=False),
+        Binding("L", "next_tab", "Tab→", show=False),
         Binding("question_mark", "toggle_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
@@ -96,10 +90,20 @@ class AgentChronicle(App):
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
-        """Switch to a tab by id."""
         tabs = self.query_one("#tabs", TabbedContent)
         tabs.active = tab_id
 
+    def action_prev_tab(self) -> None:
+        tab_order = ["overview", "browser", "sql"]
+        tabs = self.query_one("#tabs", TabbedContent)
+        idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
+        tabs.active = tab_order[(idx - 1) % len(tab_order)]
+
+    def action_next_tab(self) -> None:
+        tab_order = ["overview", "browser", "sql"]
+        tabs = self.query_one("#tabs", TabbedContent)
+        idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
+        tabs.active = tab_order[(idx + 1) % len(tab_order)]
+
     def action_toggle_help(self) -> None:
-        """Toggle help overlay."""
         self.push_screen(HelpScreen())
