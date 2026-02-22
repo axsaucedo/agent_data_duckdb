@@ -188,12 +188,11 @@ class BrowserScreen(Static):
     """
 
     BINDINGS = [
-        Binding("j", "cursor_down", "Down", show=False),
-        Binding("k", "cursor_up", "Up", show=False),
-        Binding("l", "open_selection", "Open", show=False),
-        Binding("h", "go_back", "Back", show=False),
-        Binding("escape", "go_back", "Back", show=False),
-        Binding("enter", "open_selection", "Open", show=False),
+        Binding("j", "vim_down", "Down", show=False),
+        Binding("k", "vim_up", "Up", show=False),
+        Binding("l", "vim_right", "Open", show=False),
+        Binding("h", "vim_left", "Back", show=False),
+        Binding("escape", "vim_left", "Back", show=False),
         Binding("slash", "focus_filter", "Filter", show=False),
     ]
 
@@ -325,56 +324,53 @@ class BrowserScreen(Static):
         if event.input.id == "filter-input":
             self._apply_filter(event.value)
 
-    # ── Vim-style actions ───────────────────────────────────────
+    # ── Focus-aware vim navigation ─────────────────────────────
 
-    def action_cursor_down(self) -> None:
-        table = self._active_table()
-        if table:
-            table.action_cursor_down()
+    def action_vim_down(self) -> None:
+        """j — move cursor down in tables, scroll down in detail panel."""
+        focused = self.app.focused
+        if isinstance(focused, DataTable):
+            focused.action_cursor_down()
+        elif isinstance(focused, VerticalScroll):
+            focused.scroll_down(animate=False)
 
-    def action_cursor_up(self) -> None:
-        table = self._active_table()
-        if table:
-            table.action_cursor_up()
+    def action_vim_up(self) -> None:
+        """k — move cursor up in tables, scroll up in detail panel."""
+        focused = self.app.focused
+        if isinstance(focused, DataTable):
+            focused.action_cursor_up()
+        elif isinstance(focused, VerticalScroll):
+            focused.scroll_up(animate=False)
 
-    def action_open_selection(self) -> None:
-        if self._view == "table":
+    def action_vim_right(self) -> None:
+        """l — drill into selection: table→timeline, events→detail."""
+        focused = self.app.focused
+        try:
+            session_table = self.query_one("#session-table", DataTable)
+            event_list = self.query_one("#event-list", DataTable)
+            detail_scroll = self.query_one("#detail-scroll", VerticalScroll)
+        except Exception:
+            return
+        if focused is session_table:
             self._open_highlighted_session()
-        elif self._view == "timeline":
-            # If event list is focused, show detail and focus the detail scroll
-            focused = self.app.focused
-            try:
-                event_list = self.query_one("#event-list", DataTable)
-            except Exception:
-                event_list = None
-            if focused is event_list:
-                self._show_highlighted_event()
-                try:
-                    self.query_one("#detail-scroll", VerticalScroll).focus()
-                except Exception:
-                    pass
-            else:
-                self._show_highlighted_event()
+        elif focused is event_list:
+            self._show_highlighted_event()
+            detail_scroll.focus()
 
-    def action_go_back(self) -> None:
-        if self._view == "timeline":
-            # If detail scroll is focused, go back to event list
-            focused = self.app.focused
-            try:
-                detail_scroll = self.query_one("#detail-scroll", VerticalScroll)
-            except Exception:
-                detail_scroll = None
-            if focused is detail_scroll:
-                try:
-                    self.query_one("#event-list", DataTable).focus()
-                except Exception:
-                    pass
-            else:
-                self._show_table_view()
-                try:
-                    self.query_one("#session-table", DataTable).focus()
-                except Exception:
-                    pass
+    def action_vim_left(self) -> None:
+        """h/Escape — go back: detail→events, events→table."""
+        focused = self.app.focused
+        try:
+            event_list = self.query_one("#event-list", DataTable)
+            detail_scroll = self.query_one("#detail-scroll", VerticalScroll)
+            session_table = self.query_one("#session-table", DataTable)
+        except Exception:
+            return
+        if focused is detail_scroll:
+            event_list.focus()
+        elif focused is event_list or self._view == "timeline":
+            self._show_table_view()
+            session_table.focus()
 
     def action_focus_filter(self) -> None:
         try:
@@ -382,12 +378,47 @@ class BrowserScreen(Static):
         except Exception:
             pass
 
-    def _active_table(self) -> DataTable | None:
-        tid = "session-table" if self._view == "table" else "event-list"
+    # ── DataTable event handlers ───────────────────────────────
+
+    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
+        """Update detail panel as user moves through event list."""
+        if event.data_table.id == "event-list" and not self._events_df.empty:
+            row_idx = event.cursor_row
+            if row_idx < len(self._events_df):
+                self._show_event_detail(row_idx)
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle Enter key on DataTable (DataTable consumes enter internally)."""
+        if event.data_table.id == "session-table":
+            self._open_highlighted_session()
+        elif event.data_table.id == "event-list":
+            self._show_highlighted_event()
+            try:
+                self.query_one("#detail-scroll", VerticalScroll).focus()
+            except Exception:
+                pass
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "back-button":
+            self._show_table_view()
+            try:
+                self.query_one("#session-table", DataTable).focus()
+            except Exception:
+                pass
+
+    # ── Focus restoration (called by App on tab switch) ────────
+
+    def restore_focus(self) -> None:
+        """Restore focus to the correct widget based on current view state."""
         try:
-            return self.query_one(f"#{tid}", DataTable)
+            if self._view == "table":
+                self.query_one("#session-table", DataTable).focus()
+            else:
+                self.query_one("#event-list", DataTable).focus()
         except Exception:
-            return None
+            pass
+
+    # ── Internal helpers ───────────────────────────────────────
 
     def _open_highlighted_session(self) -> None:
         try:
@@ -410,22 +441,6 @@ class BrowserScreen(Static):
             return
         if row_idx < len(self._events_df):
             self._show_event_detail(row_idx)
-
-    # Show event detail on cursor move (single-click / arrow key)
-    def on_data_table_row_highlighted(self, event: DataTable.RowHighlighted) -> None:
-        if event.data_table.id == "event-list" and not self._events_df.empty:
-            row_idx = event.cursor_row
-            if row_idx < len(self._events_df):
-                self._show_event_detail(row_idx)
-
-    # Enter/double-click on session table opens timeline
-    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
-        if event.data_table.id == "session-table":
-            self._open_highlighted_session()
-
-    def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "back-button":
-            self._show_table_view()
 
     def _load_timeline(self) -> None:
         if not self._selected_path or not self._selected_session_id:

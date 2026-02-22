@@ -66,8 +66,6 @@ class AgentChronicle(App):
         Binding("1", "switch_tab('browser')", "Browser", show=True),
         Binding("2", "switch_tab('overview')", "Overview", show=True),
         Binding("3", "switch_tab('sql')", "SQL", show=True),
-        Binding("j", "scroll_down", "↓", show=False),
-        Binding("k", "scroll_up", "↑", show=False),
         Binding("question_mark", "toggle_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
@@ -95,30 +93,17 @@ class AgentChronicle(App):
     def action_switch_tab(self, tab_id: str) -> None:
         tabs = self.query_one("#tabs", TabbedContent)
         tabs.active = tab_id
+        self.set_timer(0.05, lambda: self._refocus_active_tab(tab_id))
 
-    def action_scroll_down(self) -> None:
-        focused = self.focused
-        if isinstance(focused, (Input,)):
-            return
-        if isinstance(focused, DataTable):
-            focused.action_cursor_down()
-        else:
-            for widget in self.screen.query("VerticalScroll"):
-                if widget.is_on_screen:
-                    widget.scroll_down(animate=False)
-                    break
-
-    def action_scroll_up(self) -> None:
-        focused = self.focused
-        if isinstance(focused, (Input,)):
-            return
-        if isinstance(focused, DataTable):
-            focused.action_cursor_up()
-        else:
-            for widget in self.screen.query("VerticalScroll"):
-                if widget.is_on_screen:
-                    widget.scroll_up(animate=False)
-                    break
+    def _refocus_active_tab(self, tab_id: str) -> None:
+        """Restore focus to the correct widget inside the newly-active tab."""
+        try:
+            if tab_id == "browser":
+                self.query_one(BrowserScreen).restore_focus()
+            elif tab_id == "sql":
+                self.query_one("#sql-input", Input).focus()
+        except Exception:
+            pass
 
     def action_toggle_help(self) -> None:
         self.push_screen(HelpScreen())

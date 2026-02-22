@@ -55,7 +55,7 @@ class TestBrowserScreen:
         async with app.run_test() as pilot:
             await pilot.press("2")
             browser = app.query_one(BrowserScreen)
-            assert hasattr(browser, "action_cursor_down")
-            assert hasattr(browser, "action_cursor_up")
-            assert hasattr(browser, "action_open_selection")
-            assert hasattr(browser, "action_go_back")
+            assert hasattr(browser, "action_vim_down")
+            assert hasattr(browser, "action_vim_up")
+            assert hasattr(browser, "action_vim_right")
+            assert hasattr(browser, "action_vim_left")
