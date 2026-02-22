@@ -44,8 +44,8 @@ class MetricCard(Static):
 
     DEFAULT_CSS = """
     MetricCard {
-        background: $surface;
-        border: round $surface;
+        background: $surface 70%;
+        border: round $surface 70%;
         padding: 1 2;
         margin: 0 1;
         height: 5;
@@ -83,8 +83,8 @@ class ChartSection(Static):
 
     DEFAULT_CSS = """
     ChartSection {
-        background: $surface;
-        border: round $surface;
+        background: $surface 70%;
+        border: round $surface 70%;
         padding: 1 2;
         margin: 1 1;
         height: auto;
@@ -116,8 +116,8 @@ class ActivitySparkSection(Static):
 
     DEFAULT_CSS = """
     ActivitySparkSection {
-        background: $surface;
-        border: round $surface;
+        background: $surface 70%;
+        border: round $surface 70%;
         padding: 1 2;
         margin: 1 1;
         height: auto;
@@ -195,14 +195,14 @@ class OverviewScreen(Static):
             yield ActivitySparkSection(id="activity-spark-section")
             with Vertical(id="charts-grid"):
                 with Horizontal(classes="charts-row"):
-                    yield ChartSection("📊 Messages by Source", id="chart-source")
                     yield ChartSection("💬 Message Types (Top 10)", id="chart-types")
-                with Horizontal(classes="charts-row"):
-                    yield ChartSection("📁 Top Projects", id="chart-projects")
                     yield ChartSection("🔧 Top Tools", id="chart-tools")
                 with Horizontal(classes="charts-row"):
-                    yield ChartSection("🔢 Token Usage", id="chart-tokens")
+                    yield ChartSection("📁 Top Projects", id="chart-projects")
                     yield ChartSection("🕐 Sessions by Day", id="chart-sessions-day")
+                with Horizontal(classes="charts-row"):
+                    yield ChartSection("🔢 Token Usage", id="chart-tokens")
+                    yield ChartSection("📊 Messages by Source", id="chart-source")
 
     def on_mount(self) -> None:
         self._load_data()

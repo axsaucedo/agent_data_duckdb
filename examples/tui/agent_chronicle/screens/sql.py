@@ -5,8 +5,7 @@ from __future__ import annotations
 import time
 
 from textual.app import ComposeResult
-from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static, DataTable, Input, Button, Select
 
 from agent_chronicle.db import run_query, path_expr
@@ -54,14 +53,31 @@ class SQLScreen(Static):
         height: 1fr;
         min-height: 6;
     }
-    #samples-panel {
-        background: $surface;
-        border: round $surface;
+    #samples-scroll {
+        background: $surface 70%;
+        border: round $surface 70%;
         padding: 1 2;
         margin: 0 0 1 0;
         height: auto;
         max-height: 16;
         display: none;
+    }
+    .sample-category {
+        text-style: bold;
+        color: $primary;
+        margin: 1 0 0 0;
+    }
+    .sample-btn {
+        background: $surface 50%;
+        color: $foreground;
+        border: none;
+        margin: 0 1 0 2;
+        height: 1;
+        min-width: 20;
+    }
+    .sample-btn:hover {
+        background: $primary 30%;
+        color: $foreground;
     }
     """
 
@@ -73,6 +89,7 @@ class SQLScreen(Static):
         self.copilot_path = copilot_path
         self._source = "claude"
         self._show_samples = False
+        self._sample_map: dict[str, str] = {}
 
     def compose(self) -> ComposeResult:
         yield Static("🔎 SQL Query", id="sql-title")
@@ -92,7 +109,8 @@ class SQLScreen(Static):
             yield Button("▶ Run (Enter)", id="sql-run-btn", variant="primary")
             yield Button("📋 Samples", id="sql-samples-btn", variant="default")
         yield Static("", id="sql-status")
-        yield Static("", id="samples-panel")
+        with VerticalScroll(id="samples-scroll"):
+            pass
         yield DataTable(id="sql-results")
 
     def on_mount(self) -> None:
@@ -112,6 +130,10 @@ class SQLScreen(Static):
             self._execute_query()
         elif event.button.id == "sql-samples-btn":
             self._toggle_samples()
+        elif event.button.id and event.button.id.startswith("sample-"):
+            template = self._sample_map.get(event.button.id, "")
+            if template:
+                self._load_sample(template)
 
     def _execute_query(self) -> None:
         try:
@@ -162,25 +184,36 @@ class SQLScreen(Static):
     def _toggle_samples(self) -> None:
         self._show_samples = not self._show_samples
         try:
-            panel = self.query_one("#samples-panel", Static)
+            panel = self.query_one("#samples-scroll", VerticalScroll)
             if self._show_samples:
-                lines = []
-                for category, queries in SAMPLE_QUERIES.items():
-                    lines.append(f"\n[bold]{category}[/bold]")
-                    for name, template in queries.items():
-                        lines.append(f"  • {name}")
-                panel.update("\n".join(lines))
+                # Build sample buttons dynamically on first show
+                if not self._sample_map:
+                    self._populate_samples_panel(panel)
                 panel.display = True
             else:
                 panel.display = False
         except Exception:
             pass
 
-    def load_sample_query(self, template: str) -> None:
+    def _populate_samples_panel(self, panel: VerticalScroll) -> None:
+        """Populate the samples panel with category headers and clickable buttons."""
+        idx = 0
+        for category, queries in SAMPLE_QUERIES.items():
+            panel.mount(Static(f"\n{category}", classes="sample-category"))
+            for name, template in queries.items():
+                btn_id = f"sample-{idx}"
+                self._sample_map[btn_id] = template
+                panel.mount(Button(f"  • {name}", id=btn_id, classes="sample-btn"))
+                idx += 1
+
+    def _load_sample(self, template: str) -> None:
+        """Load a sample query template into the editor."""
         rendered = self._render_query(template)
         try:
             editor = self.query_one("#sql-editor", Input)
             editor.value = rendered
+            self._show_samples = False
+            self.query_one("#samples-scroll", VerticalScroll).display = False
         except Exception:
             pass
 

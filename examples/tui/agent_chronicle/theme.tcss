@@ -1,50 +1,50 @@
-/* Agent Chronicle — Dynamic Theme CSS
+/* Agent Chronicle — Tokyo Night Theme CSS
  *
  * Colors come from Textual's Theme system via $variables.
- * Themes are registered in themes.py and switched with 't' key.
+ * All surfaces use opacity to let terminal background show through.
  */
 
 /* ── Base ─────────────────────────────────────────── */
 
 Screen {
-    background: $background;
+    background: transparent;
 }
 
 Header {
-    background: $panel;
+    background: $panel 85%;
     color: $foreground;
 }
 
 Footer {
-    background: $panel;
+    background: $panel 85%;
     color: $foreground 60%;
 }
 
 /* ── Tabs ─────────────────────────────────────────── */
 
 TabbedContent {
-    background: $background;
+    background: transparent;
     height: 1fr;
 }
 
 ContentSwitcher {
-    background: $background;
+    background: transparent;
     height: 1fr;
 }
 
 TabPane {
-    background: $background;
+    background: transparent;
     padding: 1 2;
     height: 1fr;
 }
 
 Tabs {
-    background: $panel;
+    background: $panel 85%;
     dock: top;
 }
 
 Tab {
-    background: $panel;
+    background: transparent;
     color: $foreground 40%;
     padding: 0 2;
 }
@@ -52,7 +52,7 @@ Tab {
 Tab.-active {
     color: $primary;
     text-style: bold;
-    background: $surface;
+    background: $surface 70%;
 }
 
 Tab:hover {
@@ -62,48 +62,49 @@ Tab:hover {
 /* ── Typography ───────────────────────────────────── */
 
 Static {
+    background: transparent;
     color: $foreground;
 }
 
 /* ── DataTable ────────────────────────────────────── */
 
 DataTable {
-    background: $background;
+    background: transparent;
     color: $foreground;
     height: 1fr;
 }
 
 DataTable > .datatable--header {
-    background: $surface;
+    background: $surface 80%;
     color: $primary;
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: $surface;
+    background: $surface 80%;
     color: $foreground;
     text-style: bold;
 }
 
 DataTable > .datatable--even-row {
-    background: $background;
+    background: transparent;
 }
 
 DataTable > .datatable--odd-row {
-    background: $background 80%;
+    background: $surface 30%;
 }
 
 DataTable:focus > .datatable--cursor {
-    background: $accent;
+    background: $accent 60%;
     color: $foreground;
 }
 
 /* ── Input / TextArea ─────────────────────────────── */
 
 Input {
-    background: $surface;
+    background: $surface 70%;
     color: $foreground;
-    border: tall $surface;
+    border: tall $surface 70%;
 }
 
 Input:focus {
@@ -111,16 +112,16 @@ Input:focus {
 }
 
 TextArea {
-    background: $surface;
+    background: $surface 70%;
     color: $foreground;
 }
 
 /* ── Buttons ──────────────────────────────────────── */
 
 Button {
-    background: $surface;
+    background: $surface 70%;
     color: $foreground;
-    border: tall $surface;
+    border: tall $surface 70%;
 }
 
 Button:hover {
@@ -129,30 +130,45 @@ Button:hover {
 }
 
 Button.-primary {
-    background: $primary;
-    color: $background;
-    border: tall $primary;
+    background: $primary 90%;
+    color: #16161e;
+    border: tall $primary 90%;
     text-style: bold;
 }
 
 Button.-primary:hover {
-    background: $primary 80%;
+    background: $primary 70%;
+    color: #16161e;
 }
 
 Select {
-    background: $surface;
+    background: $surface 70%;
     color: $foreground;
+}
+
+/* ── Containers ───────────────────────────────────── */
+
+Vertical {
+    background: transparent;
+}
+
+Horizontal {
+    background: transparent;
+}
+
+VerticalScroll {
+    background: transparent;
 }
 
 /* ── Help overlay ─────────────────────────────────── */
 
 HelpScreen {
-    background: $background 88%;
+    background: $panel 88%;
     align: center middle;
 }
 
 #help-dialog {
-    background: $surface;
+    background: $surface 95%;
     border: heavy $primary;
     padding: 2 4;
     width: 72;

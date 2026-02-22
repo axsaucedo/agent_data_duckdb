@@ -66,47 +66,19 @@ class TestNavigation:
             assert app.title == "Agent Chronicle"
 
 
-class TestThemes:
+class TestTheme:
     @pytest.fixture
     def app(self):
         return AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot")
 
     @pytest.mark.asyncio
-    async def test_default_theme_is_catppuccin(self, app):
+    async def test_default_theme_is_tokyo_night(self, app):
         async with app.run_test() as pilot:
-            assert app.theme == "catppuccin-mocha"
+            assert app.theme == "tokyo-night"
 
     @pytest.mark.asyncio
-    async def test_custom_theme_from_init(self):
+    async def test_theme_name_kwarg_ignored(self):
+        """theme_name kwarg is accepted but ignored for backwards compat."""
         app = AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot", theme_name="dracula")
         async with app.run_test() as pilot:
-            assert app.theme == "dracula"
-
-    @pytest.mark.asyncio
-    async def test_cycle_theme(self, app):
-        async with app.run_test() as pilot:
-            assert app.theme == "catppuccin-mocha"
-            await pilot.press("t")
-            assert app.theme == "dracula"
-            await pilot.press("t")
-            assert app.theme == "nord"
-
-    @pytest.mark.asyncio
-    async def test_all_themes_registered(self, app):
-        from agent_chronicle.themes import THEME_NAMES
-        async with app.run_test() as pilot:
-            for name in THEME_NAMES:
-                app.theme = name
-                assert app.theme == name
-
-    @pytest.mark.asyncio
-    async def test_monokai_theme(self):
-        app = AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot", theme_name="monokai")
-        async with app.run_test() as pilot:
-            assert app.theme == "monokai"
-
-    @pytest.mark.asyncio
-    async def test_molokai_theme(self):
-        app = AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot", theme_name="molokai")
-        async with app.run_test() as pilot:
-            assert app.theme == "molokai"
+            assert app.theme == "tokyo-night"

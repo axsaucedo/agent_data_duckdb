@@ -8,7 +8,7 @@ from datetime import datetime
 import pandas as pd
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Horizontal, Vertical
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static, DataTable, Input, Button
 from textual.worker import WorkerState
 from textual import work
@@ -163,13 +163,15 @@ class BrowserScreen(Static):
         width: 2fr;
         height: 1fr;
     }
-    #detail-panel {
+    #detail-scroll {
         width: 3fr;
         height: 1fr;
-        overflow-y: auto;
+        background: $surface 60%;
+        border-left: tall $surface 60%;
+    }
+    #detail-panel {
         padding: 0 1;
-        background: $surface;
-        border-left: tall $surface;
+        width: 1fr;
     }
     #back-button {
         margin: 0 0 0 0;
@@ -221,7 +223,8 @@ class BrowserScreen(Static):
             yield Static("", id="stats-bar")
             with Horizontal(id="timeline-container"):
                 yield DataTable(id="event-list")
-                yield Static("[dim #6c7086]← Select an event to see details[/dim #6c7086]", id="detail-panel")
+                with VerticalScroll(id="detail-scroll"):
+                    yield Static("[dim]← Select an event to see details[/dim]", id="detail-panel")
 
     def on_mount(self) -> None:
         self._show_table_view()
@@ -337,16 +340,41 @@ class BrowserScreen(Static):
     def action_open_selection(self) -> None:
         if self._view == "table":
             self._open_highlighted_session()
-        else:
-            self._show_highlighted_event()
+        elif self._view == "timeline":
+            # If event list is focused, show detail and focus the detail scroll
+            focused = self.app.focused
+            try:
+                event_list = self.query_one("#event-list", DataTable)
+            except Exception:
+                event_list = None
+            if focused is event_list:
+                self._show_highlighted_event()
+                try:
+                    self.query_one("#detail-scroll", VerticalScroll).focus()
+                except Exception:
+                    pass
+            else:
+                self._show_highlighted_event()
 
     def action_go_back(self) -> None:
         if self._view == "timeline":
-            self._show_table_view()
+            # If detail scroll is focused, go back to event list
+            focused = self.app.focused
             try:
-                self.query_one("#session-table", DataTable).focus()
+                detail_scroll = self.query_one("#detail-scroll", VerticalScroll)
             except Exception:
-                pass
+                detail_scroll = None
+            if focused is detail_scroll:
+                try:
+                    self.query_one("#event-list", DataTable).focus()
+                except Exception:
+                    pass
+            else:
+                self._show_table_view()
+                try:
+                    self.query_one("#session-table", DataTable).focus()
+                except Exception:
+                    pass
 
     def action_focus_filter(self) -> None:
         try:

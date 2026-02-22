@@ -9,7 +9,7 @@ from textual.containers import Vertical, VerticalScroll
 from agent_chronicle.screens.overview import OverviewScreen
 from agent_chronicle.screens.browser import BrowserScreen
 from agent_chronicle.screens.sql import SQLScreen
-from agent_chronicle.themes import THEMES, DEFAULT_THEME, THEME_NAMES
+from agent_chronicle.themes import THEME
 
 
 HELP_TEXT = """\
@@ -35,7 +35,6 @@ HELP_TEXT = """\
   Enter         Execute query
 
 [bold]General[/bold]
-  t             Cycle theme
   ?             Toggle this help
   q             Quit
 
@@ -69,19 +68,18 @@ class AgentChronicle(App):
         Binding("3", "switch_tab('sql')", "SQL", show=True),
         Binding("j", "scroll_down", "↓", show=False),
         Binding("k", "scroll_up", "↑", show=False),
-        Binding("t", "cycle_theme", "Theme", show=True),
         Binding("question_mark", "toggle_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
-    def __init__(self, claude_path: str = "~/.claude", copilot_path: str = "~/.copilot", theme_name: str = DEFAULT_THEME):
-        super().__init__()
+    def __init__(self, claude_path: str = "~/.claude", copilot_path: str = "~/.copilot", **kwargs):
+        # Pop theme_name if passed (backwards compat) but ignore it
+        kwargs.pop("theme_name", None)
+        super().__init__(**kwargs)
         self.claude_path = claude_path
         self.copilot_path = copilot_path
-        self._theme_name = theme_name
-        for t in THEMES.values():
-            self.register_theme(t)
-        self.theme = self._theme_name
+        self.register_theme(THEME)
+        self.theme = "tokyo-night"
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -105,7 +103,6 @@ class AgentChronicle(App):
         if isinstance(focused, DataTable):
             focused.action_cursor_down()
         else:
-            # Scroll the nearest scrollable ancestor
             for widget in self.screen.query("VerticalScroll"):
                 if widget.is_on_screen:
                     widget.scroll_down(animate=False)
@@ -122,12 +119,6 @@ class AgentChronicle(App):
                 if widget.is_on_screen:
                     widget.scroll_up(animate=False)
                     break
-
-    def action_cycle_theme(self) -> None:
-        idx = THEME_NAMES.index(self.theme) if self.theme in THEME_NAMES else -1
-        next_theme = THEME_NAMES[(idx + 1) % len(THEME_NAMES)]
-        self.theme = next_theme
-        self.notify(f"Theme: {next_theme}", timeout=2)
 
     def action_toggle_help(self) -> None:
         self.push_screen(HelpScreen())
