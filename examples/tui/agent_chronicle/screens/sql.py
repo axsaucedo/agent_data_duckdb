@@ -1,28 +1,27 @@
-"""SQL Query screen — interactive editor with results table."""
+"""SQL Query screen — interactive editor with results table and samples browser."""
 
 from __future__ import annotations
 
 import time
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Static, DataTable, Input, Button, Select
+from textual.widgets import Static, DataTable, Input, Button, Select, TabbedContent, TabPane
 
 from agent_chronicle.db import run_query, path_expr
 from agent_chronicle.constants import SAMPLE_QUERIES, COLUMN_MAP
 
 
 class SQLScreen(Static):
-    """SQL Query editor with execution and results display."""
+    """SQL Query editor with execution, results, and sample query browser."""
 
     DEFAULT_CSS = """
     SQLScreen {
         height: 1fr;
     }
-    #sql-title {
-        text-style: bold;
-        color: $primary;
-        padding: 0 0 1 0;
+    #sql-tabs {
+        height: 1fr;
     }
     #sql-toolbar {
         height: 3;
@@ -42,9 +41,6 @@ class SQLScreen(Static):
     #sql-run-btn {
         margin: 0 1 0 0;
     }
-    #sql-samples-btn {
-        margin: 0 1 0 0;
-    }
     #sql-status {
         color: $foreground 60%;
         height: 1;
@@ -53,69 +49,81 @@ class SQLScreen(Static):
         height: 1fr;
         min-height: 6;
     }
-    #samples-scroll {
-        background: $surface 70%;
-        border: round $surface 70%;
-        padding: 1 2;
-        margin: 0 0 1 0;
-        height: auto;
-        max-height: 16;
-        display: none;
-    }
-    .sample-category {
-        text-style: bold;
-        color: $primary;
-        margin: 1 0 0 0;
-    }
-    .sample-btn {
-        background: $surface 50%;
-        color: $foreground;
-        border: none;
-        margin: 0 1 0 2;
-        height: 1;
-        min-width: 20;
-    }
-    .sample-btn:hover {
-        background: $primary 30%;
-        color: $foreground;
+    #samples-table {
+        height: 1fr;
     }
     """
 
-    BINDINGS = []
+    BINDINGS = [
+        Binding("j", "vim_down", "Down", show=False),
+        Binding("k", "vim_up", "Up", show=False),
+    ]
 
     def __init__(self, claude_path: str, copilot_path: str, **kwargs):
         super().__init__(**kwargs)
         self.claude_path = claude_path
         self.copilot_path = copilot_path
         self._source = "claude"
-        self._show_samples = False
-        self._sample_map: dict[str, str] = {}
+        self._sample_queries: list[tuple[str, str, str]] = []  # (category, name, template)
 
     def compose(self) -> ComposeResult:
-        yield Static("🔎 SQL Query", id="sql-title")
-        with Horizontal(id="sql-toolbar"):
-            yield Select(
-                [("Claude", "claude"), ("Copilot", "copilot"), ("Both", "both")],
-                value="claude",
-                id="sql-source-select",
-                allow_blank=False,
-            )
-        yield Input(
-            value="SELECT * FROM read_conversations() LIMIT 10",
-            placeholder="Enter SQL query and press Enter…",
-            id="sql-editor",
-        )
-        with Horizontal(id="sql-buttons"):
-            yield Button("▶ Run (Enter)", id="sql-run-btn", variant="primary")
-            yield Button("📋 Samples", id="sql-samples-btn", variant="default")
-        yield Static("", id="sql-status")
-        with VerticalScroll(id="samples-scroll"):
-            pass
-        yield DataTable(id="sql-results")
+        with TabbedContent(id="sql-tabs"):
+            with TabPane("🔎 SQL Query", id="sql-query-tab"):
+                with Horizontal(id="sql-toolbar"):
+                    yield Select(
+                        [("Claude", "claude"), ("Copilot", "copilot"), ("Both", "both")],
+                        value="claude",
+                        id="sql-source-select",
+                        allow_blank=False,
+                    )
+                yield Input(
+                    value="SELECT * FROM read_conversations() LIMIT 10",
+                    placeholder="Enter SQL query and press Enter…",
+                    id="sql-editor",
+                )
+                with Horizontal(id="sql-buttons"):
+                    yield Button("▶ Run (Enter)", id="sql-run-btn", variant="primary")
+                yield Static("", id="sql-status")
+                yield DataTable(id="sql-results")
+            with TabPane("📋 Samples", id="sql-samples-tab"):
+                yield DataTable(id="samples-table")
 
     def on_mount(self) -> None:
-        table = self.query_one("#sql-results", DataTable)
+        results = self.query_one("#sql-results", DataTable)
+        results.cursor_type = "row"
+        self._populate_samples_table()
+
+    def _populate_samples_table(self) -> None:
+        """Build the samples DataTable from SAMPLE_QUERIES constants."""
+        try:
+            table = self.query_one("#samples-table", DataTable)
+        except Exception:
+            return
         table.cursor_type = "row"
+        table.add_columns("Category", "Query Name")
+        self._sample_queries = []
+        for category, queries in SAMPLE_QUERIES.items():
+            for name, template in queries.items():
+                self._sample_queries.append((category, name, template))
+                table.add_row(category, name)
+
+    # ── Vim navigation ─────────────────────────────────────────
+
+    def action_vim_down(self) -> None:
+        focused = self.app.focused
+        if isinstance(focused, DataTable):
+            focused.action_cursor_down()
+        elif isinstance(focused, VerticalScroll):
+            focused.scroll_down(animate=False)
+
+    def action_vim_up(self) -> None:
+        focused = self.app.focused
+        if isinstance(focused, DataTable):
+            focused.action_cursor_up()
+        elif isinstance(focused, VerticalScroll):
+            focused.scroll_up(animate=False)
+
+    # ── Event handlers ─────────────────────────────────────────
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "sql-editor":
@@ -128,12 +136,16 @@ class SQLScreen(Static):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "sql-run-btn":
             self._execute_query()
-        elif event.button.id == "sql-samples-btn":
-            self._toggle_samples()
-        elif event.button.id and event.button.id.startswith("sample-"):
-            template = self._sample_map.get(event.button.id, "")
-            if template:
+
+    def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
+        """Handle Enter on samples table to load query into editor."""
+        if event.data_table.id == "samples-table":
+            row_idx = event.cursor_row
+            if row_idx < len(self._sample_queries):
+                _, _, template = self._sample_queries[row_idx]
                 self._load_sample(template)
+
+    # ── Internal helpers ───────────────────────────────────────
 
     def _execute_query(self) -> None:
         try:
@@ -181,39 +193,15 @@ class SQLScreen(Static):
         except Exception:
             pass
 
-    def _toggle_samples(self) -> None:
-        self._show_samples = not self._show_samples
-        try:
-            panel = self.query_one("#samples-scroll", VerticalScroll)
-            if self._show_samples:
-                # Build sample buttons dynamically on first show
-                if not self._sample_map:
-                    self._populate_samples_panel(panel)
-                panel.display = True
-            else:
-                panel.display = False
-        except Exception:
-            pass
-
-    def _populate_samples_panel(self, panel: VerticalScroll) -> None:
-        """Populate the samples panel with category headers and clickable buttons."""
-        idx = 0
-        for category, queries in SAMPLE_QUERIES.items():
-            panel.mount(Static(f"\n{category}", classes="sample-category"))
-            for name, template in queries.items():
-                btn_id = f"sample-{idx}"
-                self._sample_map[btn_id] = template
-                panel.mount(Button(f"  • {name}", id=btn_id, classes="sample-btn"))
-                idx += 1
-
     def _load_sample(self, template: str) -> None:
-        """Load a sample query template into the editor."""
+        """Load a sample query into the editor and switch to Query tab."""
         rendered = self._render_query(template)
         try:
             editor = self.query_one("#sql-editor", Input)
             editor.value = rendered
-            self._show_samples = False
-            self.query_one("#samples-scroll", VerticalScroll).display = False
+            # Switch to Query tab
+            self.query_one("#sql-tabs", TabbedContent).active = "sql-query-tab"
+            editor.focus()
         except Exception:
             pass
 

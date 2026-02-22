@@ -3,7 +3,7 @@
 import pytest
 from agent_chronicle.app import AgentChronicle
 from agent_chronicle.screens.sql import SQLScreen
-from textual.widgets import DataTable, Input, Button, Select
+from textual.widgets import DataTable, Input, Button, Select, TabbedContent
 
 
 @pytest.fixture
@@ -53,3 +53,26 @@ class TestSQLScreen:
             await pilot.press("3")
             table = app.query_one("#sql-results", DataTable)
             assert table is not None
+
+    @pytest.mark.asyncio
+    async def test_samples_table_exists(self, app):
+        async with app.run_test() as pilot:
+            await pilot.press("3")
+            table = app.query_one("#samples-table", DataTable)
+            assert table is not None
+            assert table.row_count > 0
+
+    @pytest.mark.asyncio
+    async def test_sql_has_sub_tabs(self, app):
+        async with app.run_test() as pilot:
+            await pilot.press("3")
+            tabs = app.query_one("#sql-tabs", TabbedContent)
+            assert tabs is not None
+
+    @pytest.mark.asyncio
+    async def test_vim_bindings_exist(self, app):
+        async with app.run_test() as pilot:
+            await pilot.press("3")
+            sql = app.query_one(SQLScreen)
+            assert hasattr(sql, "action_vim_down")
+            assert hasattr(sql, "action_vim_up")

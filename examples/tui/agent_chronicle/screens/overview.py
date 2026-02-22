@@ -1,6 +1,7 @@
 """Overview dashboard screen with metrics and visual charts."""
 
 from textual.app import ComposeResult
+from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static, Sparkline
 from textual.worker import WorkerState
@@ -179,6 +180,11 @@ class OverviewScreen(Static):
     }
     """
 
+    BINDINGS = [
+        Binding("j", "scroll_down", "Down", show=False),
+        Binding("k", "scroll_up", "Up", show=False),
+    ]
+
     def __init__(self, claude_path: str, copilot_path: str, **kwargs):
         super().__init__(**kwargs)
         self.claude_path = claude_path
@@ -203,6 +209,18 @@ class OverviewScreen(Static):
                 with Horizontal(classes="charts-row"):
                     yield ChartSection("🔢 Token Usage", id="chart-tokens")
                     yield ChartSection("📊 Messages by Source", id="chart-source")
+
+    def action_scroll_down(self) -> None:
+        try:
+            self.query_one("#overview-scroll", VerticalScroll).scroll_down(animate=False)
+        except Exception:
+            pass
+
+    def action_scroll_up(self) -> None:
+        try:
+            self.query_one("#overview-scroll", VerticalScroll).scroll_up(animate=False)
+        except Exception:
+            pass
 
     def on_mount(self) -> None:
         self._load_data()

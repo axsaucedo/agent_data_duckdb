@@ -20,7 +20,8 @@ class TestNavigation:
     async def test_has_three_tabs(self, app):
         async with app.run_test() as pilot:
             tabs = app.query_one("#tabs", TabbedContent)
-            panes = list(tabs.query("TabPane"))
+            panes = [p for p in tabs.query("TabPane")
+                     if p.parent and p.parent.parent is tabs]
             assert len(panes) == 3
 
     @pytest.mark.asyncio
