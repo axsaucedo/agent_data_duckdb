@@ -52,14 +52,31 @@ class TestNavigation:
             assert len(app.screen_stack) > 1
 
     @pytest.mark.asyncio
-    async def test_shift_l_cycles_focus(self, app):
+    async def test_shift_l_next_tab(self, app):
         async with app.run_test() as pilot:
+            await pilot.press("1")
+            tabs = app.query_one("#tabs", TabbedContent)
+            assert tabs.active == "overview"
             await pilot.press("L")
-            # Focus should have moved (no crash)
+            assert tabs.active == "browser"
+
+    @pytest.mark.asyncio
+    async def test_shift_h_prev_tab(self, app):
+        async with app.run_test() as pilot:
+            await pilot.press("2")
+            tabs = app.query_one("#tabs", TabbedContent)
+            assert tabs.active == "browser"
+            await pilot.press("H")
+            assert tabs.active == "overview"
+
+    @pytest.mark.asyncio
+    async def test_shift_j_cycles_focus_next(self, app):
+        async with app.run_test() as pilot:
+            await pilot.press("J")
             assert app.title == "Agent Chronicle"
 
     @pytest.mark.asyncio
-    async def test_shift_h_cycles_focus(self, app):
+    async def test_shift_k_cycles_focus_prev(self, app):
         async with app.run_test() as pilot:
-            await pilot.press("H")
+            await pilot.press("K")
             assert app.title == "Agent Chronicle"

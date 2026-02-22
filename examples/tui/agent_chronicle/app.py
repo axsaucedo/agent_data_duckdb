@@ -16,7 +16,8 @@ HELP_TEXT = """\
 
 [bold #89b4fa]Navigation[/bold #89b4fa]
   [#a6e3a1]1  2  3[/#a6e3a1]       Jump to Overview / Browser / SQL tab
-  [#a6e3a1]H  L[/#a6e3a1]          Previous / Next focus  (Shift+h / Shift+l)
+  [#a6e3a1]H  L[/#a6e3a1]          Previous / Next tab  (Shift+h / Shift+l)
+  [#a6e3a1]J  K[/#a6e3a1]          Next / Previous focus  (Shift+j / Shift+k)
   [#a6e3a1]Tab[/#a6e3a1]           Cycle focus forward
   [#a6e3a1]Shift+Tab[/#a6e3a1]     Cycle focus backward
 
@@ -67,8 +68,10 @@ class AgentChronicle(App):
         Binding("1", "switch_tab('overview')", "Overview", show=True),
         Binding("2", "switch_tab('browser')", "Browser", show=True),
         Binding("3", "switch_tab('sql')", "SQL", show=True),
-        Binding("H", "focus_previous", "←Focus", show=False),
-        Binding("L", "focus_next", "Focus→", show=False),
+        Binding("H", "prev_tab", "←Tab", show=False),
+        Binding("L", "next_tab", "Tab→", show=False),
+        Binding("J", "focus_next", "Focus↓", show=False),
+        Binding("K", "focus_previous", "Focus↑", show=False),
         Binding("question_mark", "toggle_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
@@ -92,6 +95,18 @@ class AgentChronicle(App):
     def action_switch_tab(self, tab_id: str) -> None:
         tabs = self.query_one("#tabs", TabbedContent)
         tabs.active = tab_id
+
+    def action_prev_tab(self) -> None:
+        tab_order = ["overview", "browser", "sql"]
+        tabs = self.query_one("#tabs", TabbedContent)
+        idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
+        tabs.active = tab_order[(idx - 1) % len(tab_order)]
+
+    def action_next_tab(self) -> None:
+        tab_order = ["overview", "browser", "sql"]
+        tabs = self.query_one("#tabs", TabbedContent)
+        idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
+        tabs.active = tab_order[(idx + 1) % len(tab_order)]
 
     def action_toggle_help(self) -> None:
         self.push_screen(HelpScreen())
