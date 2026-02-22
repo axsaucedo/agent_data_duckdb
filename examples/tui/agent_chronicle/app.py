@@ -32,7 +32,7 @@ HELP_TEXT = """\
   /             Focus filter input
 
 [bold]SQL Query[/bold]
-  Ctrl+Enter    Execute query
+  Enter         Execute query
   s             Toggle samples panel (when not in editor)
   j  k          Navigate results or samples table
 
@@ -93,12 +93,14 @@ class AgentChronicle(App):
         yield Footer()
 
     def action_switch_tab(self, tab_id: str) -> None:
-        tabs = self.query_one("#tabs", TabbedContent)
-        tabs.active = tab_id
-        self.set_timer(0.05, lambda: self._refocus_active_tab(tab_id))
+        self.query_one("#tabs", TabbedContent).active = tab_id
+
+    def on_tabbed_content_tab_activated(self, event: TabbedContent.TabActivated) -> None:
+        """Restore focus to the correct widget after any tab switch."""
+        tab_id = event.tabbed_content.active
+        self._refocus_active_tab(tab_id)
 
     def _refocus_active_tab(self, tab_id: str) -> None:
-        """Restore focus to the correct widget inside the newly-active tab."""
         try:
             if tab_id == "browser":
                 self.query_one(BrowserScreen).restore_focus()

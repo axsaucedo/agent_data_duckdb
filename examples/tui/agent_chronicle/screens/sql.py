@@ -13,6 +13,22 @@ from agent_chronicle.db import run_query, path_expr
 from agent_chronicle.constants import SAMPLE_QUERIES, COLUMN_MAP
 
 
+class SQLEditor(TextArea):
+    """TextArea that fires a callback on Enter instead of inserting newline."""
+
+    def __init__(self, *args, on_submit=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._on_submit = on_submit
+
+    async def _on_key(self, event) -> None:
+        if event.key == "enter":
+            event.prevent_default()
+            if self._on_submit:
+                self._on_submit()
+            return
+        await super()._on_key(event)
+
+
 class SQLScreen(Static):
     """SQL Query editor with execution, results, and sample query browser."""
 
@@ -92,14 +108,15 @@ class SQLScreen(Static):
                     id="sql-source-select",
                     allow_blank=False,
                 )
-            yield TextArea(
+            yield SQLEditor(
                 "SELECT * FROM read_conversations() LIMIT 10",
                 id="sql-editor",
                 language="sql",
                 theme="monokai",
+                on_submit=self._execute_query,
             )
             with Horizontal(id="sql-buttons"):
-                yield Button("▶ Run (Ctrl+Enter)", id="sql-run-btn", variant="primary")
+                yield Button("▶ Run (Enter)", id="sql-run-btn", variant="primary")
                 yield Button("📋 Samples [s]", id="sql-samples-toggle-btn", variant="default")
             yield Static("", id="sql-status")
             yield DataTable(id="sql-results")
@@ -146,7 +163,7 @@ class SQLScreen(Static):
         """Toggle between query view and samples view."""
         focused = self.app.focused
         # Don't toggle if user is typing in the editor
-        if isinstance(focused, TextArea):
+        if isinstance(focused, SQLEditor):
             return
         self._showing_samples = not self._showing_samples
         try:
@@ -155,7 +172,7 @@ class SQLScreen(Static):
             if self._showing_samples:
                 self.query_one("#samples-table", DataTable).focus()
             else:
-                self.query_one("#sql-editor", TextArea).focus()
+                self.query_one("#sql-editor", SQLEditor).focus()
         except Exception:
             pass
 
@@ -166,17 +183,11 @@ class SQLScreen(Static):
             if self._showing_samples:
                 self.query_one("#samples-table", DataTable).focus()
             else:
-                self.query_one("#sql-editor", TextArea).focus()
+                self.query_one("#sql-editor", SQLEditor).focus()
         except Exception:
             pass
 
     # ── Event handlers ─────────────────────────────────────────
-
-    def on_key(self, event) -> None:
-        """Handle Ctrl+Enter to execute query."""
-        if event.key == "ctrl+enter":
-            self._execute_query()
-            event.stop()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "sql-source-select":
@@ -206,7 +217,7 @@ class SQLScreen(Static):
 
     def _execute_query(self) -> None:
         try:
-            editor = self.query_one("#sql-editor", TextArea)
+            editor = self.query_one("#sql-editor", SQLEditor)
             sql = editor.text.strip()
         except Exception:
             return
@@ -254,7 +265,7 @@ class SQLScreen(Static):
         """Load a sample query into the editor and switch to query view."""
         rendered = self._render_query(template)
         try:
-            editor = self.query_one("#sql-editor", TextArea)
+            editor = self.query_one("#sql-editor", SQLEditor)
             editor.clear()
             editor.insert(rendered)
             # Switch to query view

@@ -32,22 +32,32 @@ class TestNavigation:
     @pytest.mark.asyncio
     async def test_switch_to_overview_tab(self, app):
         async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
             await pilot.press("2")
+            await pilot.pause()
             tabs = app.query_one("#tabs", TabbedContent)
             assert tabs.active == "overview"
 
     @pytest.mark.asyncio
     async def test_switch_to_sql_tab(self, app):
         async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
             await pilot.press("3")
+            await pilot.pause()
             tabs = app.query_one("#tabs", TabbedContent)
             assert tabs.active == "sql"
 
     @pytest.mark.asyncio
     async def test_switch_back_to_browser(self, app):
         async with app.run_test() as pilot:
+            await pilot.pause()
+            await pilot.pause()
             await pilot.press("2")
+            await pilot.pause()
             await pilot.press("1")
+            await pilot.pause()
             tabs = app.query_one("#tabs", TabbedContent)
             assert tabs.active == "browser"
 

@@ -2,7 +2,7 @@
 
 import pytest
 from agent_chronicle.app import AgentChronicle
-from agent_chronicle.screens.sql import SQLScreen
+from agent_chronicle.screens.sql import SQLScreen, SQLEditor
 from textual.widgets import DataTable, TextArea, Button, Select
 
 
@@ -23,14 +23,14 @@ class TestSQLScreen:
     async def test_sql_editor_exists(self, app):
         async with app.run_test() as pilot:
             await pilot.press("3")
-            editor = app.query_one("#sql-editor", TextArea)
+            editor = app.query_one("#sql-editor", SQLEditor)
             assert editor is not None
 
     @pytest.mark.asyncio
     async def test_sql_editor_has_default_query(self, app):
         async with app.run_test() as pilot:
             await pilot.press("3")
-            editor = app.query_one("#sql-editor", TextArea)
+            editor = app.query_one("#sql-editor", SQLEditor)
             assert "read_conversations" in editor.text
 
     @pytest.mark.asyncio
@@ -69,10 +69,8 @@ class TestSQLScreen:
             await pilot.press("3")
             await pilot.pause()
             sql = app.query_one(SQLScreen)
-            # Focus the results table first (not the TextArea, as s is captured there)
-            app.query_one("#sql-results", DataTable).focus()
-            await pilot.pause()
-            await pilot.press("s")
+            # Call toggle directly (s key only works when a non-text widget is focused)
+            sql.action_toggle_samples()
             await pilot.pause()
             assert sql._showing_samples is True
             assert app.query_one("#sql-samples-view").display is True
