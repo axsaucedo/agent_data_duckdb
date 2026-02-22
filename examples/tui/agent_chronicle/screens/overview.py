@@ -1,12 +1,42 @@
-"""Overview dashboard screen with metrics and stats."""
+"""Overview dashboard screen with metrics and visual charts."""
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Static
+from textual.widgets import Static, Sparkline
 from textual.worker import WorkerState
 from textual import work
 
 from agent_chronicle.db import union_from, _run_queries_threaded
+
+# Unicode bar characters for horizontal bar charts
+BAR_CHARS = " ▏▎▍▌▋▊▉█"
+
+
+def _bar(value: float, max_value: float, width: int = 25) -> str:
+    """Render a horizontal bar using Unicode block characters."""
+    if max_value <= 0:
+        return ""
+    ratio = min(value / max_value, 1.0)
+    full_blocks = int(ratio * width)
+    remainder = (ratio * width) - full_blocks
+    partial_idx = int(remainder * 8)
+    bar = "█" * full_blocks
+    if partial_idx > 0 and full_blocks < width:
+        bar += BAR_CHARS[partial_idx]
+    return bar
+
+
+def _bar_chart_lines(items: list[tuple[str, int]], color: str = "$primary") -> str:
+    """Render a labeled horizontal bar chart as Rich markup."""
+    if not items:
+        return "[dim]No data[/dim]"
+    max_val = max(v for _, v in items) if items else 1
+    max_label = max(len(lbl) for lbl, _ in items) if items else 10
+    lines = []
+    for label, value in items:
+        bar = _bar(value, max_val)
+        lines.append(f"  {label:<{max_label}}  [{color}]{bar}[/{color}] {value:,}")
+    return "\n".join(lines)
 
 
 class MetricCard(Static):
@@ -48,11 +78,11 @@ class MetricCard(Static):
             pass
 
 
-class StatsSection(Static):
-    """A stats section showing a label and text data."""
+class ChartSection(Static):
+    """A section with a title and chart content."""
 
     DEFAULT_CSS = """
-    StatsSection {
+    ChartSection {
         background: $surface;
         border: round $surface;
         padding: 1 2;
@@ -63,7 +93,7 @@ class StatsSection(Static):
     }
     """
 
-    def __init__(self, title: str, content: str = "[dim #6c7086]Loading…[/dim #6c7086]", **kwargs):
+    def __init__(self, title: str, content: str = "[dim]Loading…[/dim]", **kwargs):
         super().__init__(**kwargs)
         self._title = title
         self._content = content
@@ -81,8 +111,48 @@ class StatsSection(Static):
             pass
 
 
+class ActivitySparkSection(Static):
+    """Section with a sparkline chart for activity over time."""
+
+    DEFAULT_CSS = """
+    ActivitySparkSection {
+        background: $surface;
+        border: round $surface;
+        padding: 1 2;
+        margin: 1 1;
+        height: auto;
+        min-height: 8;
+        width: 1fr;
+    }
+    #activity-spark {
+        height: 3;
+        margin: 1 0 0 0;
+    }
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._labels_text = ""
+
+    def compose(self) -> ComposeResult:
+        yield Static("[bold]📈 Activity (Last 14 Days)[/bold]")
+        yield Sparkline([], id="activity-spark", min_color="#45475a", max_color="#89b4fa")
+        yield Static("", id="activity-labels")
+
+    def set_data(self, data: list[float], labels: list[str]) -> None:
+        try:
+            spark = self.query_one("#activity-spark", Sparkline)
+            spark.data = data if data else [0]
+            label_w = self.query_one("#activity-labels", Static)
+            if labels:
+                first, last = labels[0], labels[-1]
+                label_w.update(f"  [dim]{first}[/dim]{'':>{max(0, 30)}}[dim]{last}[/dim]")
+        except Exception:
+            pass
+
+
 class OverviewScreen(Static):
-    """Overview dashboard with metrics and activity stats."""
+    """Overview dashboard with metrics and visual charts."""
 
     DEFAULT_CSS = """
     OverviewScreen {
@@ -100,10 +170,10 @@ class OverviewScreen(Static):
         height: 5;
         margin: 0 0 1 0;
     }
-    #stats-grid {
+    #charts-grid {
         height: auto;
     }
-    .stats-row {
+    .charts-row {
         height: auto;
         margin: 0;
     }
@@ -122,23 +192,24 @@ class OverviewScreen(Static):
                 yield MetricCard("Claude Messages", "…", id="metric-claude-messages")
                 yield MetricCard("Copilot Sessions", "…", id="metric-copilot-sessions")
                 yield MetricCard("Copilot Messages", "…", id="metric-copilot-messages")
-            with Vertical(id="stats-grid"):
-                with Horizontal(classes="stats-row"):
-                    yield StatsSection("📊 Messages by Source", id="stats-source")
-                    yield StatsSection("💬 Message Types (Top 10)", id="stats-types")
-                with Horizontal(classes="stats-row"):
-                    yield StatsSection("📁 Top Projects", id="stats-projects")
-                    yield StatsSection("🔧 Top Tools", id="stats-tools")
-                with Horizontal(classes="stats-row"):
-                    yield StatsSection("🔢 Token Usage", id="stats-tokens")
-                    yield StatsSection("📈 Recent Activity", id="stats-activity")
+            yield ActivitySparkSection(id="activity-spark-section")
+            with Vertical(id="charts-grid"):
+                with Horizontal(classes="charts-row"):
+                    yield ChartSection("📊 Messages by Source", id="chart-source")
+                    yield ChartSection("💬 Message Types (Top 10)", id="chart-types")
+                with Horizontal(classes="charts-row"):
+                    yield ChartSection("📁 Top Projects", id="chart-projects")
+                    yield ChartSection("🔧 Top Tools", id="chart-tools")
+                with Horizontal(classes="charts-row"):
+                    yield ChartSection("🔢 Token Usage", id="chart-tokens")
+                    yield ChartSection("🕐 Sessions by Day", id="chart-sessions-day")
 
     def on_mount(self) -> None:
         self._load_data()
 
     @work(thread=True, exclusive=True)
     def _load_data(self) -> dict:
-        """Load overview data in a background thread. Returns results dict."""
+        """Load overview data in a background thread."""
         FROM = union_from(self.claude_path, self.copilot_path, "read_conversations")
         queries = {
             "metrics": f"""
@@ -176,6 +247,13 @@ class OverviewScreen(Static):
                 SELECT CAST(timestamp AS DATE) AS day, COUNT(*) AS messages
                 FROM {FROM} t
                 WHERE timestamp IS NOT NULL
+                GROUP BY day ORDER BY day ASC LIMIT 14
+            """,
+            "sessions_by_day": f"""
+                SELECT CAST(timestamp AS DATE) AS day,
+                       COUNT(DISTINCT session_id) AS sessions
+                FROM {FROM} t
+                WHERE timestamp IS NOT NULL
                 GROUP BY day ORDER BY day DESC LIMIT 7
             """,
         }
@@ -186,7 +264,8 @@ class OverviewScreen(Static):
             self._apply_results(event.worker.result)
 
     def _apply_results(self, results: dict) -> None:
-        """Apply query results to the UI (runs on main thread)."""
+        """Apply query results to the UI with visual charts."""
+        # Metric cards
         metrics_df = results.get("metrics")
         if metrics_df is not None and not metrics_df.empty:
             claude = metrics_df[metrics_df["source"] == "claude"]
@@ -196,39 +275,62 @@ class OverviewScreen(Static):
             self._update_metric("metric-copilot-sessions", str(int(copilot["sessions"].iloc[0])) if not copilot.empty else "0")
             self._update_metric("metric-copilot-messages", str(int(copilot["messages"].iloc[0])) if not copilot.empty else "0")
 
+        # Activity sparkline
+        act_df = results.get("activity")
+        if act_df is not None and not act_df.empty:
+            data = [float(r["messages"]) for _, r in act_df.iterrows()]
+            labels = [str(r["day"]) for _, r in act_df.iterrows()]
+            try:
+                section = self.query_one("#activity-spark-section", ActivitySparkSection)
+                section.set_data(data, labels)
+            except Exception:
+                pass
+
+        # Bar chart: messages by source
         src_df = results.get("sources")
         if src_df is not None and not src_df.empty:
-            lines = [f"  {r['source']}: {int(r['messages']):,}" for _, r in src_df.iterrows()]
-            self._update_stats("stats-source", "\n".join(lines))
+            items = [(r["source"], int(r["messages"])) for _, r in src_df.iterrows()]
+            self._update_chart("chart-source", _bar_chart_lines(items, "bold #89b4fa"))
 
+        # Bar chart: message types
         types_df = results.get("types")
         if types_df is not None and not types_df.empty:
-            lines = [f"  {r['message_type']}: {int(r['count']):,}" for _, r in types_df.iterrows()]
-            self._update_stats("stats-types", "\n".join(lines))
+            items = [(r["message_type"], int(r["count"])) for _, r in types_df.iterrows()]
+            self._update_chart("chart-types", _bar_chart_lines(items, "bold #a6e3a1"))
 
+        # Bar chart: top projects
         proj_df = results.get("projects")
         if proj_df is not None and not proj_df.empty:
-            lines = [f"  {r['project']}: {int(r['messages']):,}" for _, r in proj_df.iterrows()]
-            self._update_stats("stats-projects", "\n".join(lines))
+            items = [(r["project"], int(r["messages"])) for _, r in proj_df.iterrows()]
+            self._update_chart("chart-projects", _bar_chart_lines(items, "bold #f9e2af"))
 
+        # Bar chart: top tools
         tools_df = results.get("tools")
         if tools_df is not None and not tools_df.empty:
-            lines = [f"  {r['tool_name']}: {int(r['uses']):,}" for _, r in tools_df.iterrows()]
-            self._update_stats("stats-tools", "\n".join(lines))
+            items = [(r["tool_name"], int(r["uses"])) for _, r in tools_df.iterrows()]
+            self._update_chart("chart-tools", _bar_chart_lines(items, "bold #cba6f7"))
 
+        # Token usage with dual bars
         tok_df = results.get("tokens")
         if tok_df is not None and not tok_df.empty:
             lines = []
+            all_vals = []
             for _, r in tok_df.iterrows():
-                inp = int(r["input_tokens"])
-                out = int(r["output_tokens"])
-                lines.append(f"  {r['source']}: {inp:,} in / {out:,} out")
-            self._update_stats("stats-tokens", "\n".join(lines))
+                all_vals.extend([int(r["input_tokens"]), int(r["output_tokens"])])
+            max_tok = max(all_vals) if all_vals else 1
+            for _, r in tok_df.iterrows():
+                inp, out = int(r["input_tokens"]), int(r["output_tokens"])
+                inp_bar = _bar(inp, max_tok, 20)
+                out_bar = _bar(out, max_tok, 20)
+                lines.append(f"  {r['source']} input  [bold #89b4fa]{inp_bar}[/bold #89b4fa] {inp:,}")
+                lines.append(f"  {r['source']} output [bold #a6e3a1]{out_bar}[/bold #a6e3a1] {out:,}")
+            self._update_chart("chart-tokens", "\n".join(lines))
 
-        act_df = results.get("activity")
-        if act_df is not None and not act_df.empty:
-            lines = [f"  {r['day']}: {int(r['messages']):,} msgs" for _, r in act_df.iterrows()]
-            self._update_stats("stats-activity", "\n".join(lines))
+        # Sessions by day bar chart
+        sbd_df = results.get("sessions_by_day")
+        if sbd_df is not None and not sbd_df.empty:
+            items = [(str(r["day"]), int(r["sessions"])) for _, r in sbd_df.iterrows()]
+            self._update_chart("chart-sessions-day", _bar_chart_lines(items, "bold #f38ba8"))
 
     def _update_metric(self, metric_id: str, value: str) -> None:
         try:
@@ -237,9 +339,9 @@ class OverviewScreen(Static):
         except Exception:
             pass
 
-    def _update_stats(self, section_id: str, content: str) -> None:
+    def _update_chart(self, section_id: str, content: str) -> None:
         try:
-            section = self.query_one(f"#{section_id}", StatsSection)
+            section = self.query_one(f"#{section_id}", ChartSection)
             section.update_content(content)
         except Exception:
             pass
