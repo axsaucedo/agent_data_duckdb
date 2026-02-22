@@ -89,6 +89,37 @@ def _cached_query(key: str, sql: str) -> pd.DataFrame:
     return df
 
 
+def _threaded_query(sql: str) -> pd.DataFrame:
+    """Execute a query in a fresh connection (thread-safe for workers)."""
+    con = duckdb.connect()
+    try:
+        con.execute("LOAD agent_data")
+        return con.execute(sql).df()
+    except Exception as e:
+        logger.error("Threaded query failed: %s", e)
+        return pd.DataFrame()
+    finally:
+        con.close()
+
+
+def _run_queries_threaded(queries: dict[str, str]) -> dict[str, pd.DataFrame]:
+    """Run multiple queries in a single thread-local connection."""
+    con = duckdb.connect()
+    results: dict[str, pd.DataFrame] = {}
+    try:
+        con.execute("LOAD agent_data")
+        for key, sql in queries.items():
+            try:
+                results[key] = con.execute(sql).df()
+            except Exception:
+                results[key] = pd.DataFrame()
+    except Exception as e:
+        logger.error("Threaded queries failed: %s", e)
+    finally:
+        con.close()
+    return results
+
+
 def load_session_index(path: str) -> pd.DataFrame:
     """Load session summary index with first user message."""
     key = f"session_index:{path}"

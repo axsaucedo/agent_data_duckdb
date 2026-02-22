@@ -3,8 +3,10 @@
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Static
+from textual.worker import WorkerState
+from textual import work
 
-from agent_chronicle.db import get_connection, union_from, _safe_query
+from agent_chronicle.db import union_from, _run_queries_threaded
 
 
 class MetricCard(Static):
@@ -132,107 +134,101 @@ class OverviewScreen(Static):
                     yield StatsSection("📈 Recent Activity", id="stats-activity")
 
     def on_mount(self) -> None:
-        # Defer loading so UI renders instantly
-        self.set_timer(0.05, self._load_data)
+        self._load_data()
 
-    def _load_data(self) -> None:
-        """Load overview data (deferred so UI paints first)."""
-        con = get_connection()
+    @work(thread=True, exclusive=True)
+    def _load_data(self) -> dict:
+        """Load overview data in a background thread. Returns results dict."""
         FROM = union_from(self.claude_path, self.copilot_path, "read_conversations")
-
-        try:
-            metrics_df = _safe_query(f"""
+        queries = {
+            "metrics": f"""
                 SELECT source,
                        COUNT(DISTINCT session_id) AS sessions,
                        COUNT(*) AS messages
                 FROM {FROM} t
                 GROUP BY source
-            """)
-            if not metrics_df.empty:
-                claude = metrics_df[metrics_df["source"] == "claude"]
-                copilot = metrics_df[metrics_df["source"] == "copilot"]
-                self._update_metric("metric-claude-sessions", str(int(claude["sessions"].iloc[0])) if not claude.empty else "0")
-                self._update_metric("metric-claude-messages", str(int(claude["messages"].iloc[0])) if not claude.empty else "0")
-                self._update_metric("metric-copilot-sessions", str(int(copilot["sessions"].iloc[0])) if not copilot.empty else "0")
-                self._update_metric("metric-copilot-messages", str(int(copilot["messages"].iloc[0])) if not copilot.empty else "0")
-        except Exception:
-            pass
-
-        try:
-            src_df = _safe_query(f"SELECT source, COUNT(*) AS messages FROM {FROM} t GROUP BY source")
-            if not src_df.empty:
-                lines = [f"  {r['source']}: {int(r['messages']):,}" for _, r in src_df.iterrows()]
-                self._update_stats("stats-source", "\n".join(lines))
-        except Exception:
-            pass
-
-        try:
-            types_df = _safe_query(f"""
+            """,
+            "sources": f"SELECT source, COUNT(*) AS messages FROM {FROM} t GROUP BY source",
+            "types": f"""
                 SELECT message_type, COUNT(*) AS count FROM {FROM} t
                 WHERE message_type IS NOT NULL
                 GROUP BY message_type ORDER BY count DESC LIMIT 10
-            """)
-            if not types_df.empty:
-                lines = [f"  {r['message_type']}: {int(r['count']):,}" for _, r in types_df.iterrows()]
-                self._update_stats("stats-types", "\n".join(lines))
-        except Exception:
-            pass
-
-        try:
-            proj_df = _safe_query(f"""
+            """,
+            "projects": f"""
                 SELECT COALESCE(SPLIT_PART(project_path, '/', -1), 'unknown') AS project,
                        COUNT(*) AS messages
                 FROM {FROM} t
                 WHERE project_path IS NOT NULL AND project_path != ''
                 GROUP BY project ORDER BY messages DESC LIMIT 10
-            """)
-            if not proj_df.empty:
-                lines = [f"  {r['project']}: {int(r['messages']):,}" for _, r in proj_df.iterrows()]
-                self._update_stats("stats-projects", "\n".join(lines))
-        except Exception:
-            pass
-
-        try:
-            tools_df = _safe_query(f"""
+            """,
+            "tools": f"""
                 SELECT tool_name, COUNT(*) AS uses FROM {FROM} t
                 WHERE tool_name IS NOT NULL AND tool_name != ''
                 GROUP BY tool_name ORDER BY uses DESC LIMIT 10
-            """)
-            if not tools_df.empty:
-                lines = [f"  {r['tool_name']}: {int(r['uses']):,}" for _, r in tools_df.iterrows()]
-                self._update_stats("stats-tools", "\n".join(lines))
-        except Exception:
-            pass
-
-        try:
-            tok_df = _safe_query(f"""
+            """,
+            "tokens": f"""
                 SELECT source,
                        SUM(COALESCE(input_tokens, 0)) AS input_tokens,
                        SUM(COALESCE(output_tokens, 0)) AS output_tokens
                 FROM {FROM} t GROUP BY source
-            """)
-            if not tok_df.empty:
-                lines = []
-                for _, r in tok_df.iterrows():
-                    inp = int(r["input_tokens"])
-                    out = int(r["output_tokens"])
-                    lines.append(f"  {r['source']}: {inp:,} in / {out:,} out")
-                self._update_stats("stats-tokens", "\n".join(lines))
-        except Exception:
-            pass
-
-        try:
-            act_df = _safe_query(f"""
+            """,
+            "activity": f"""
                 SELECT CAST(timestamp AS DATE) AS day, COUNT(*) AS messages
                 FROM {FROM} t
                 WHERE timestamp IS NOT NULL
                 GROUP BY day ORDER BY day DESC LIMIT 7
-            """)
-            if not act_df.empty:
-                lines = [f"  {r['day']}: {int(r['messages']):,} msgs" for _, r in act_df.iterrows()]
-                self._update_stats("stats-activity", "\n".join(lines))
-        except Exception:
-            pass
+            """,
+        }
+        return _run_queries_threaded(queries)
+
+    def on_worker_state_changed(self, event) -> None:
+        if event.state == WorkerState.SUCCESS and event.worker.result:
+            self._apply_results(event.worker.result)
+
+    def _apply_results(self, results: dict) -> None:
+        """Apply query results to the UI (runs on main thread)."""
+        metrics_df = results.get("metrics")
+        if metrics_df is not None and not metrics_df.empty:
+            claude = metrics_df[metrics_df["source"] == "claude"]
+            copilot = metrics_df[metrics_df["source"] == "copilot"]
+            self._update_metric("metric-claude-sessions", str(int(claude["sessions"].iloc[0])) if not claude.empty else "0")
+            self._update_metric("metric-claude-messages", str(int(claude["messages"].iloc[0])) if not claude.empty else "0")
+            self._update_metric("metric-copilot-sessions", str(int(copilot["sessions"].iloc[0])) if not copilot.empty else "0")
+            self._update_metric("metric-copilot-messages", str(int(copilot["messages"].iloc[0])) if not copilot.empty else "0")
+
+        src_df = results.get("sources")
+        if src_df is not None and not src_df.empty:
+            lines = [f"  {r['source']}: {int(r['messages']):,}" for _, r in src_df.iterrows()]
+            self._update_stats("stats-source", "\n".join(lines))
+
+        types_df = results.get("types")
+        if types_df is not None and not types_df.empty:
+            lines = [f"  {r['message_type']}: {int(r['count']):,}" for _, r in types_df.iterrows()]
+            self._update_stats("stats-types", "\n".join(lines))
+
+        proj_df = results.get("projects")
+        if proj_df is not None and not proj_df.empty:
+            lines = [f"  {r['project']}: {int(r['messages']):,}" for _, r in proj_df.iterrows()]
+            self._update_stats("stats-projects", "\n".join(lines))
+
+        tools_df = results.get("tools")
+        if tools_df is not None and not tools_df.empty:
+            lines = [f"  {r['tool_name']}: {int(r['uses']):,}" for _, r in tools_df.iterrows()]
+            self._update_stats("stats-tools", "\n".join(lines))
+
+        tok_df = results.get("tokens")
+        if tok_df is not None and not tok_df.empty:
+            lines = []
+            for _, r in tok_df.iterrows():
+                inp = int(r["input_tokens"])
+                out = int(r["output_tokens"])
+                lines.append(f"  {r['source']}: {inp:,} in / {out:,} out")
+            self._update_stats("stats-tokens", "\n".join(lines))
+
+        act_df = results.get("activity")
+        if act_df is not None and not act_df.empty:
+            lines = [f"  {r['day']}: {int(r['messages']):,} msgs" for _, r in act_df.iterrows()]
+            self._update_stats("stats-activity", "\n".join(lines))
 
     def _update_metric(self, metric_id: str, value: str) -> None:
         try:

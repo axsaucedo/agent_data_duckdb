@@ -10,6 +10,8 @@ from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.widgets import Static, DataTable, Input, Button
+from textual.worker import WorkerState
+from textual import work
 
 from agent_chronicle.db import load_session_index, load_session_events
 from agent_chronicle.constants import BADGE_COLORS, DEFAULT_BADGE_COLORS
@@ -223,11 +225,11 @@ class BrowserScreen(Static):
 
     def on_mount(self) -> None:
         self._show_table_view()
-        # Defer loading so UI renders instantly
-        self.set_timer(0.05, self._load_sessions)
+        self._load_sessions_async()
 
-    def _load_sessions(self) -> None:
-        """Load session index from both sources."""
+    @work(thread=True, exclusive=True, name="load_sessions")
+    def _load_sessions_async(self) -> pd.DataFrame:
+        """Load session index from both sources in a background thread."""
         all_dfs = []
         for path in [self.claude_path, self.copilot_path]:
             try:
@@ -239,12 +241,18 @@ class BrowserScreen(Static):
                 pass
 
         if all_dfs:
-            self._sessions_df = pd.concat(all_dfs, ignore_index=True).sort_values(
+            return pd.concat(all_dfs, ignore_index=True).sort_values(
                 "first_ts", ascending=False
             )
-        else:
-            self._sessions_df = pd.DataFrame()
+        return pd.DataFrame()
 
+    def on_worker_state_changed(self, event) -> None:
+        if event.state == WorkerState.SUCCESS and event.worker.name == "load_sessions":
+            self._on_sessions_loaded(event.worker.result if event.worker.result is not None else pd.DataFrame())
+
+    def _on_sessions_loaded(self, sessions_df: pd.DataFrame) -> None:
+        """Called on main thread when session data is ready."""
+        self._sessions_df = sessions_df
         self._apply_filter("")
 
     def _show_table_view(self) -> None:
