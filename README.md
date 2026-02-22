@@ -37,6 +37,12 @@ ON c.session_id = h.session_id;
 <img src="docs/streamlit.gif">
 </a>
 
+<h4>Or the <a href="https://github.com/axsaucedo/agent_data_duckdb/tree/main/examples/tui">Terminal TUI</a></h4>
+
+<a href="https://github.com/axsaucedo/agent_data_duckdb/tree/main/examples/tui">
+<img src="docs/tui.gif">
+</a>
+
 </td>
 </tr>
 </table>
@@ -274,6 +280,18 @@ When a JSONL line or JSON file cannot be parsed, the extension emits a row with:
 Filter them with `WHERE message_type != '_parse_error'`.
 
 ## Examples
+
+### Terminal TUI (Agent Chronicle)
+
+Keyboard-driven terminal explorer with session browser, overview dashboard, and SQL editor:
+
+```bash
+cd examples/tui
+uv sync
+uv run python -m agent_chronicle
+```
+
+See [examples/tui/README.md](examples/tui/README.md) for details.
 
 ### Marimo Notebook
 

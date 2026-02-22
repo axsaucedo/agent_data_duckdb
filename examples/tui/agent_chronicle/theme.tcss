@@ -1,0 +1,184 @@
+/* Agent Chronicle — Tokyo Night Theme CSS
+ *
+ * Colors come from Textual's Theme system via $variables.
+ * All surfaces use opacity to let terminal background show through.
+ */
+
+/* ── Base ─────────────────────────────────────────── */
+
+Screen {
+    background: transparent;
+}
+
+Header {
+    background: $panel 85%;
+    color: $foreground;
+}
+
+Footer {
+    background: $panel 85%;
+    color: $foreground 60%;
+}
+
+/* ── Tabs ─────────────────────────────────────────── */
+
+TabbedContent {
+    background: transparent;
+    height: 1fr;
+}
+
+ContentSwitcher {
+    background: transparent;
+    height: 1fr;
+}
+
+TabPane {
+    background: transparent;
+    padding: 1 2;
+    height: 1fr;
+}
+
+Tabs {
+    background: $panel 85%;
+    dock: top;
+}
+
+Tab {
+    background: transparent;
+    color: $foreground 40%;
+    padding: 0 2;
+}
+
+Tab.-active {
+    color: $primary;
+    text-style: bold;
+    background: $surface 70%;
+}
+
+Tab:hover {
+    color: $foreground;
+}
+
+/* ── Typography ───────────────────────────────────── */
+
+Static {
+    background: transparent;
+    color: $foreground;
+}
+
+/* ── DataTable ────────────────────────────────────── */
+
+DataTable {
+    background: transparent;
+    color: $foreground;
+    height: 1fr;
+}
+
+DataTable > .datatable--header {
+    background: $surface 80%;
+    color: $primary;
+    text-style: bold;
+}
+
+DataTable > .datatable--cursor {
+    background: $surface 80%;
+    color: $foreground;
+    text-style: bold;
+}
+
+DataTable > .datatable--even-row {
+    background: transparent;
+}
+
+DataTable > .datatable--odd-row {
+    background: $surface 30%;
+}
+
+DataTable:focus > .datatable--cursor {
+    background: $accent 60%;
+    color: $foreground;
+}
+
+/* ── Input / TextArea ─────────────────────────────── */
+
+Input {
+    background: $surface 70%;
+    color: $foreground;
+    border: tall $surface 70%;
+}
+
+Input:focus {
+    border: tall $primary;
+}
+
+TextArea {
+    background: $surface 70%;
+    color: $foreground;
+}
+
+/* ── Buttons ──────────────────────────────────────── */
+
+Button {
+    background: $surface 70%;
+    color: $foreground;
+    border: tall $surface 70%;
+}
+
+Button:hover {
+    background: $primary 20%;
+    color: $foreground;
+}
+
+Button.-primary {
+    background: $primary 90%;
+    color: #16161e;
+    border: tall $primary 90%;
+    text-style: bold;
+}
+
+Button.-primary:hover {
+    background: $primary 70%;
+    color: #16161e;
+}
+
+Select {
+    background: $surface 70%;
+    color: $foreground;
+}
+
+/* ── Containers ───────────────────────────────────── */
+
+Vertical {
+    background: transparent;
+}
+
+Horizontal {
+    background: transparent;
+}
+
+VerticalScroll {
+    background: transparent;
+}
+
+/* ── Help overlay ─────────────────────────────────── */
+
+HelpScreen {
+    background: $panel 88%;
+    align: center middle;
+}
+
+#help-dialog {
+    background: $surface 95%;
+    border: heavy $primary;
+    padding: 2 4;
+    width: 72;
+    height: auto;
+    max-height: 36;
+}
+
+/* ── Loading indicator ────────────────────────────── */
+
+.loading-indicator {
+    color: $foreground 40%;
+    text-style: italic;
+}
