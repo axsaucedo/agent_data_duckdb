@@ -7,7 +7,7 @@ import time
 from textual.app import ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Static, DataTable, TextArea, Button, Select
+from textual.widgets import Static, DataTable, Input, Button, Select
 
 from agent_chronicle.db import run_query, path_expr
 from agent_chronicle.constants import SAMPLE_QUERIES, COLUMN_MAP
@@ -33,8 +33,7 @@ class SQLScreen(Static):
         width: 20;
     }
     #sql-editor {
-        height: 10;
-        min-height: 6;
+        width: 1fr;
         margin: 0 0 0 0;
     }
     #sql-buttons {
@@ -66,9 +65,7 @@ class SQLScreen(Static):
     }
     """
 
-    BINDINGS = [
-        Binding("f5", "run_query", "Run", show=False),
-    ]
+    BINDINGS = []
 
     def __init__(self, claude_path: str, copilot_path: str, **kwargs):
         super().__init__(**kwargs)
@@ -86,13 +83,13 @@ class SQLScreen(Static):
                 id="sql-source-select",
                 allow_blank=False,
             )
-        yield TextArea(
-            "SELECT * FROM read_conversations() LIMIT 10",
-            language="sql",
+        yield Input(
+            value="SELECT * FROM read_conversations() LIMIT 10",
+            placeholder="Enter SQL query and press Enter…",
             id="sql-editor",
         )
         with Horizontal(id="sql-buttons"):
-            yield Button("▶ Run (F5)", id="sql-run-btn", variant="primary")
+            yield Button("▶ Run (Enter)", id="sql-run-btn", variant="primary")
             yield Button("📋 Samples", id="sql-samples-btn", variant="default")
         yield Static("", id="sql-status")
         yield Static("", id="samples-panel")
@@ -101,6 +98,10 @@ class SQLScreen(Static):
     def on_mount(self) -> None:
         table = self.query_one("#sql-results", DataTable)
         table.cursor_type = "row"
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == "sql-editor":
+            self._execute_query()
 
     def on_select_changed(self, event: Select.Changed) -> None:
         if event.select.id == "sql-source-select":
@@ -111,38 +112,29 @@ class SQLScreen(Static):
             self._execute_query()
         elif event.button.id == "sql-samples-btn":
             self._toggle_samples()
-        elif hasattr(event.button, "id") and event.button.id and event.button.id.startswith("sample-"):
-            self._load_sample(event.button.id)
-
-    def on_key(self, event) -> None:
-        if event.key == "f5":
-            self._execute_query()
-
-    def action_run_query(self) -> None:
-        self._execute_query()
 
     def _execute_query(self) -> None:
         try:
-            editor = self.query_one("#sql-editor", TextArea)
-            sql = editor.text.strip()
+            editor = self.query_one("#sql-editor", Input)
+            sql = editor.value.strip()
         except Exception:
             return
 
         if not sql:
-            self._set_status("[#f38ba8]⚠ No query to execute[/#f38ba8]")
+            self._set_status("⚠ No query to execute")
             return
 
-        self._set_status("[dim]⏳ Executing…[/dim]")
+        self._set_status("⏳ Executing…")
         start = time.time()
 
         try:
             df = run_query(sql)
             elapsed = time.time() - start
-            self._set_status(f"[#a6e3a1]✓ {len(df)} rows[/#a6e3a1] ({elapsed:.2f}s)")
+            self._set_status(f"✓ {len(df)} rows ({elapsed:.2f}s)")
             self._display_results(df)
         except Exception as e:
             elapsed = time.time() - start
-            self._set_status(f"[#f38ba8]✗ Error ({elapsed:.2f}s):[/#f38ba8] {e}")
+            self._set_status(f"✗ Error ({elapsed:.2f}s): {e}")
 
     def _display_results(self, df) -> None:
         try:
@@ -174,7 +166,7 @@ class SQLScreen(Static):
             if self._show_samples:
                 lines = []
                 for category, queries in SAMPLE_QUERIES.items():
-                    lines.append(f"\n[bold #a6e3a1]{category}[/bold #a6e3a1]")
+                    lines.append(f"\n[bold]{category}[/bold]")
                     for name, template in queries.items():
                         lines.append(f"  • {name}")
                 panel.update("\n".join(lines))
@@ -184,14 +176,11 @@ class SQLScreen(Static):
         except Exception:
             pass
 
-    def _load_sample(self, button_id: str) -> None:
-        pass
-
     def load_sample_query(self, template: str) -> None:
         rendered = self._render_query(template)
         try:
-            editor = self.query_one("#sql-editor", TextArea)
-            editor.text = rendered
+            editor = self.query_one("#sql-editor", Input)
+            editor.value = rendered
         except Exception:
             pass
 

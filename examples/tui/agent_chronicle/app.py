@@ -3,8 +3,8 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import Header, Footer, TabbedContent, TabPane, Static
-from textual.containers import Vertical
+from textual.widgets import Header, Footer, TabbedContent, TabPane, Static, DataTable, Input
+from textual.containers import Vertical, VerticalScroll
 
 from agent_chronicle.screens.overview import OverviewScreen
 from agent_chronicle.screens.browser import BrowserScreen
@@ -16,9 +16,7 @@ HELP_TEXT = """\
 [bold]⌨  Agent Chronicle — Keyboard Reference[/bold]
 
 [bold]Navigation[/bold]
-  1  2  3       Jump to Overview / Browser / SQL tab
-  H  L          Previous / Next tab  (Shift+h / Shift+l)
-  J  K          Next / Previous focus  (Shift+j / Shift+k)
+  1  2  3       Jump to Browser / Overview / SQL tab
   Tab           Cycle focus forward
   Shift+Tab     Cycle focus backward
 
@@ -34,7 +32,7 @@ HELP_TEXT = """\
   /             Focus filter input
 
 [bold]SQL Query[/bold]
-  F5            Execute query
+  Enter         Execute query
 
 [bold]General[/bold]
   t             Cycle theme
@@ -66,13 +64,11 @@ class AgentChronicle(App):
     CSS_PATH = "theme.tcss"
 
     BINDINGS = [
-        Binding("1", "switch_tab('overview')", "Overview", show=True),
-        Binding("2", "switch_tab('browser')", "Browser", show=True),
+        Binding("1", "switch_tab('browser')", "Browser", show=True),
+        Binding("2", "switch_tab('overview')", "Overview", show=True),
         Binding("3", "switch_tab('sql')", "SQL", show=True),
-        Binding("H", "prev_tab", "←Tab", show=False),
-        Binding("L", "next_tab", "Tab→", show=False),
-        Binding("J", "focus_next", "Focus↓", show=False),
-        Binding("K", "focus_previous", "Focus↑", show=False),
+        Binding("j", "scroll_down", "↓", show=False),
+        Binding("k", "scroll_up", "↑", show=False),
         Binding("t", "cycle_theme", "Theme", show=True),
         Binding("question_mark", "toggle_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
@@ -90,10 +86,10 @@ class AgentChronicle(App):
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
         with TabbedContent(id="tabs"):
-            with TabPane("📊 Overview", id="overview"):
-                yield OverviewScreen(self.claude_path, self.copilot_path)
             with TabPane("📋 Browser", id="browser"):
                 yield BrowserScreen(self.claude_path, self.copilot_path)
+            with TabPane("📊 Overview", id="overview"):
+                yield OverviewScreen(self.claude_path, self.copilot_path)
             with TabPane("🔎 SQL", id="sql"):
                 yield SQLScreen(self.claude_path, self.copilot_path)
         yield Footer()
@@ -102,17 +98,30 @@ class AgentChronicle(App):
         tabs = self.query_one("#tabs", TabbedContent)
         tabs.active = tab_id
 
-    def action_prev_tab(self) -> None:
-        tab_order = ["overview", "browser", "sql"]
-        tabs = self.query_one("#tabs", TabbedContent)
-        idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
-        tabs.active = tab_order[(idx - 1) % len(tab_order)]
+    def action_scroll_down(self) -> None:
+        focused = self.focused
+        if isinstance(focused, (Input,)):
+            return
+        if isinstance(focused, DataTable):
+            focused.action_cursor_down()
+        else:
+            # Scroll the nearest scrollable ancestor
+            for widget in self.screen.query("VerticalScroll"):
+                if widget.is_on_screen:
+                    widget.scroll_down(animate=False)
+                    break
 
-    def action_next_tab(self) -> None:
-        tab_order = ["overview", "browser", "sql"]
-        tabs = self.query_one("#tabs", TabbedContent)
-        idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
-        tabs.active = tab_order[(idx + 1) % len(tab_order)]
+    def action_scroll_up(self) -> None:
+        focused = self.focused
+        if isinstance(focused, (Input,)):
+            return
+        if isinstance(focused, DataTable):
+            focused.action_cursor_up()
+        else:
+            for widget in self.screen.query("VerticalScroll"):
+                if widget.is_on_screen:
+                    widget.scroll_up(animate=False)
+                    break
 
     def action_cycle_theme(self) -> None:
         idx = THEME_NAMES.index(self.theme) if self.theme in THEME_NAMES else -1

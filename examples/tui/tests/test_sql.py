@@ -3,7 +3,7 @@
 import pytest
 from agent_chronicle.app import AgentChronicle
 from agent_chronicle.screens.sql import SQLScreen
-from textual.widgets import DataTable, TextArea, Button, Select
+from textual.widgets import DataTable, Input, Button, Select
 
 
 @pytest.fixture
@@ -23,15 +23,15 @@ class TestSQLScreen:
     async def test_sql_editor_exists(self, app):
         async with app.run_test() as pilot:
             await pilot.press("3")
-            editor = app.query_one("#sql-editor", TextArea)
+            editor = app.query_one("#sql-editor", Input)
             assert editor is not None
 
     @pytest.mark.asyncio
     async def test_sql_editor_has_default_query(self, app):
         async with app.run_test() as pilot:
             await pilot.press("3")
-            editor = app.query_one("#sql-editor", TextArea)
-            assert "read_conversations" in editor.text
+            editor = app.query_one("#sql-editor", Input)
+            assert "read_conversations" in editor.value
 
     @pytest.mark.asyncio
     async def test_run_button_exists(self, app):

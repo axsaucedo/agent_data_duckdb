@@ -24,11 +24,17 @@ class TestNavigation:
             assert len(panes) == 3
 
     @pytest.mark.asyncio
-    async def test_switch_to_browser_tab(self, app):
+    async def test_default_tab_is_browser(self, app):
+        async with app.run_test() as pilot:
+            tabs = app.query_one("#tabs", TabbedContent)
+            assert tabs.active == "browser"
+
+    @pytest.mark.asyncio
+    async def test_switch_to_overview_tab(self, app):
         async with app.run_test() as pilot:
             await pilot.press("2")
             tabs = app.query_one("#tabs", TabbedContent)
-            assert tabs.active == "browser"
+            assert tabs.active == "overview"
 
     @pytest.mark.asyncio
     async def test_switch_to_sql_tab(self, app):
@@ -38,12 +44,12 @@ class TestNavigation:
             assert tabs.active == "sql"
 
     @pytest.mark.asyncio
-    async def test_switch_to_overview_tab(self, app):
+    async def test_switch_back_to_browser(self, app):
         async with app.run_test() as pilot:
             await pilot.press("2")
             await pilot.press("1")
             tabs = app.query_one("#tabs", TabbedContent)
-            assert tabs.active == "overview"
+            assert tabs.active == "browser"
 
     @pytest.mark.asyncio
     async def test_help_overlay(self, app):
@@ -52,33 +58,11 @@ class TestNavigation:
             assert len(app.screen_stack) > 1
 
     @pytest.mark.asyncio
-    async def test_shift_l_next_tab(self, app):
+    async def test_jk_no_crash(self, app):
+        """j/k scrolling doesn't crash when no scrollable focused."""
         async with app.run_test() as pilot:
-            await pilot.press("1")
-            tabs = app.query_one("#tabs", TabbedContent)
-            assert tabs.active == "overview"
-            await pilot.press("L")
-            assert tabs.active == "browser"
-
-    @pytest.mark.asyncio
-    async def test_shift_h_prev_tab(self, app):
-        async with app.run_test() as pilot:
-            await pilot.press("2")
-            tabs = app.query_one("#tabs", TabbedContent)
-            assert tabs.active == "browser"
-            await pilot.press("H")
-            assert tabs.active == "overview"
-
-    @pytest.mark.asyncio
-    async def test_shift_j_cycles_focus_next(self, app):
-        async with app.run_test() as pilot:
-            await pilot.press("J")
-            assert app.title == "Agent Chronicle"
-
-    @pytest.mark.asyncio
-    async def test_shift_k_cycles_focus_prev(self, app):
-        async with app.run_test() as pilot:
-            await pilot.press("K")
+            await pilot.press("j")
+            await pilot.press("k")
             assert app.title == "Agent Chronicle"
 
 
@@ -114,3 +98,15 @@ class TestThemes:
             for name in THEME_NAMES:
                 app.theme = name
                 assert app.theme == name
+
+    @pytest.mark.asyncio
+    async def test_monokai_theme(self):
+        app = AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot", theme_name="monokai")
+        async with app.run_test() as pilot:
+            assert app.theme == "monokai"
+
+    @pytest.mark.asyncio
+    async def test_molokai_theme(self):
+        app = AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot", theme_name="molokai")
+        async with app.run_test() as pilot:
+            assert app.theme == "molokai"

@@ -1,11 +1,15 @@
 """Dark theme definitions for Agent Chronicle TUI.
 
 Each theme is inspired by a popular terminal/editor color scheme.
+All themes use transparent backgrounds so the terminal wallpaper shows through.
 Themes are registered with Textual's Theme API and can be switched
 at runtime with the 't' key or via --theme CLI flag.
 """
 
 from textual.theme import Theme
+
+# All themes use "transparent" for background so the terminal bg shows through.
+# Surface/panel colors use low-alpha hex to blend with the terminal background.
 
 THEMES: dict[str, Theme] = {
     "catppuccin-mocha": Theme(
@@ -16,7 +20,7 @@ THEMES: dict[str, Theme] = {
         success="#a6e3a1",
         accent="#cba6f7",
         foreground="#cdd6f4",
-        background="#1e1e2e",
+        background="transparent",
         surface="#313244",
         panel="#181825",
         dark=True,
@@ -39,7 +43,7 @@ THEMES: dict[str, Theme] = {
         success="#50fa7b",
         accent="#ff79c6",
         foreground="#f8f8f2",
-        background="#282a36",
+        background="transparent",
         surface="#44475a",
         panel="#21222c",
         dark=True,
@@ -62,7 +66,7 @@ THEMES: dict[str, Theme] = {
         success="#a3be8c",
         accent="#b48ead",
         foreground="#eceff4",
-        background="#2e3440",
+        background="transparent",
         surface="#3b4252",
         panel="#272c36",
         dark=True,
@@ -85,7 +89,7 @@ THEMES: dict[str, Theme] = {
         success="#b8bb26",
         accent="#d3869b",
         foreground="#ebdbb2",
-        background="#282828",
+        background="transparent",
         surface="#3c3836",
         panel="#1d2021",
         dark=True,
@@ -108,7 +112,7 @@ THEMES: dict[str, Theme] = {
         success="#9ece6a",
         accent="#e0af68",
         foreground="#c0caf5",
-        background="#1a1b26",
+        background="transparent",
         surface="#24283b",
         panel="#16161e",
         dark=True,
@@ -131,7 +135,7 @@ THEMES: dict[str, Theme] = {
         success="#98c379",
         accent="#c678dd",
         foreground="#abb2bf",
-        background="#282c34",
+        background="transparent",
         surface="#2c313c",
         panel="#21252b",
         dark=True,
@@ -154,7 +158,7 @@ THEMES: dict[str, Theme] = {
         success="#859900",
         accent="#6c71c4",
         foreground="#839496",
-        background="#002b36",
+        background="transparent",
         surface="#073642",
         panel="#00212b",
         dark=True,
@@ -177,7 +181,7 @@ THEMES: dict[str, Theme] = {
         success="#98bb6c",
         accent="#957fb8",
         foreground="#dcd7ba",
-        background="#1f1f28",
+        background="transparent",
         surface="#2a2a37",
         panel="#16161d",
         dark=True,
@@ -200,7 +204,7 @@ THEMES: dict[str, Theme] = {
         success="#31748f",
         accent="#f6c177",
         foreground="#e0def4",
-        background="#191724",
+        background="transparent",
         surface="#26233a",
         panel="#1f1d2e",
         dark=True,
@@ -223,7 +227,7 @@ THEMES: dict[str, Theme] = {
         success="#a7c080",
         accent="#d699b6",
         foreground="#d3c6aa",
-        background="#2d353b",
+        background="transparent",
         surface="#343f44",
         panel="#272e33",
         dark=True,
@@ -236,6 +240,52 @@ THEMES: dict[str, Theme] = {
             "focus-cursor": "#56635d",
             "border-color": "#475258",
             "header-bg": "#272e33",
+        },
+    ),
+    "monokai": Theme(
+        name="monokai",
+        primary="#a6e22e",
+        secondary="#66d9ef",
+        error="#f92672",
+        success="#a6e22e",
+        accent="#fd971f",
+        foreground="#f8f8f2",
+        background="transparent",
+        surface="#3e3d32",
+        panel="#1e1f1c",
+        dark=True,
+        variables={
+            "overlay": "#49483e",
+            "subtext": "#a59f85",
+            "muted": "#75715e",
+            "odd-row": "#2d2e2a",
+            "cursor-bg": "#49483e",
+            "focus-cursor": "#75715e",
+            "border-color": "#49483e",
+            "header-bg": "#1e1f1c",
+        },
+    ),
+    "molokai": Theme(
+        name="molokai",
+        primary="#a6e22e",
+        secondary="#66d9ef",
+        error="#f92672",
+        success="#a6e22e",
+        accent="#ae81ff",
+        foreground="#f8f8f2",
+        background="transparent",
+        surface="#383830",
+        panel="#1b1d1e",
+        dark=True,
+        variables={
+            "overlay": "#465457",
+            "subtext": "#808080",
+            "muted": "#556270",
+            "odd-row": "#2d2e2a",
+            "cursor-bg": "#465457",
+            "focus-cursor": "#556270",
+            "border-color": "#465457",
+            "header-bg": "#1b1d1e",
         },
     ),
 }
