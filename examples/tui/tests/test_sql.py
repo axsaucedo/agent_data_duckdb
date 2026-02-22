@@ -3,7 +3,7 @@
 import pytest
 from agent_chronicle.app import AgentChronicle
 from agent_chronicle.screens.sql import SQLScreen
-from textual.widgets import DataTable, Input, Button, Select, TabbedContent
+from textual.widgets import DataTable, TextArea, Button, Select
 
 
 @pytest.fixture
@@ -23,15 +23,15 @@ class TestSQLScreen:
     async def test_sql_editor_exists(self, app):
         async with app.run_test() as pilot:
             await pilot.press("3")
-            editor = app.query_one("#sql-editor", Input)
+            editor = app.query_one("#sql-editor", TextArea)
             assert editor is not None
 
     @pytest.mark.asyncio
     async def test_sql_editor_has_default_query(self, app):
         async with app.run_test() as pilot:
             await pilot.press("3")
-            editor = app.query_one("#sql-editor", Input)
-            assert "read_conversations" in editor.value
+            editor = app.query_one("#sql-editor", TextArea)
+            assert "read_conversations" in editor.text
 
     @pytest.mark.asyncio
     async def test_run_button_exists(self, app):
@@ -63,11 +63,19 @@ class TestSQLScreen:
             assert table.row_count > 0
 
     @pytest.mark.asyncio
-    async def test_sql_has_sub_tabs(self, app):
+    async def test_samples_toggle(self, app):
+        """Test s key toggles between query and samples view."""
         async with app.run_test() as pilot:
             await pilot.press("3")
-            tabs = app.query_one("#sql-tabs", TabbedContent)
-            assert tabs is not None
+            await pilot.pause()
+            sql = app.query_one(SQLScreen)
+            # Focus the results table first (not the TextArea, as s is captured there)
+            app.query_one("#sql-results", DataTable).focus()
+            await pilot.pause()
+            await pilot.press("s")
+            await pilot.pause()
+            assert sql._showing_samples is True
+            assert app.query_one("#sql-samples-view").display is True
 
     @pytest.mark.asyncio
     async def test_vim_bindings_exist(self, app):
@@ -76,3 +84,4 @@ class TestSQLScreen:
             sql = app.query_one(SQLScreen)
             assert hasattr(sql, "action_vim_down")
             assert hasattr(sql, "action_vim_up")
+            assert hasattr(sql, "action_toggle_samples")

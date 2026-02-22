@@ -3,7 +3,7 @@
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.screen import ModalScreen
-from textual.widgets import Header, Footer, TabbedContent, TabPane, Static, DataTable, Input
+from textual.widgets import Header, Footer, TabbedContent, TabPane, Static, DataTable
 from textual.containers import Vertical, VerticalScroll
 
 from agent_chronicle.screens.overview import OverviewScreen
@@ -32,7 +32,8 @@ HELP_TEXT = """\
   /             Focus filter input
 
 [bold]SQL Query[/bold]
-  Enter         Execute query
+  Ctrl+Enter    Execute query
+  s             Toggle samples panel (when not in editor)
   j  k          Navigate results or samples table
 
 [bold]General[/bold]
@@ -101,8 +102,10 @@ class AgentChronicle(App):
         try:
             if tab_id == "browser":
                 self.query_one(BrowserScreen).restore_focus()
+            elif tab_id == "overview":
+                self.query_one("#overview-scroll", VerticalScroll).focus()
             elif tab_id == "sql":
-                self.query_one("#sql-editor", Input).focus()
+                self.query_one(SQLScreen).restore_focus()
         except Exception:
             pass
 
