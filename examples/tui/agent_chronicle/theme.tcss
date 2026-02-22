@@ -1,155 +1,159 @@
-/* Agent Chronicle — Catppuccin Mocha-inspired Theme */
+/* Agent Chronicle — Dynamic Theme CSS
+ *
+ * Colors come from Textual's Theme system via $variables.
+ * Themes are registered in themes.py and switched with 't' key.
+ */
 
 /* ── Base ─────────────────────────────────────────── */
 
 Screen {
-    background: #1e1e2e;
+    background: $background;
 }
 
 Header {
-    background: #181825;
-    color: #cdd6f4;
+    background: $panel;
+    color: $foreground;
 }
 
 Footer {
-    background: #181825;
-    color: #a6adc8;
+    background: $panel;
+    color: $foreground 60%;
 }
 
 /* ── Tabs ─────────────────────────────────────────── */
 
 TabbedContent {
-    background: #1e1e2e;
+    background: $background;
     height: 1fr;
 }
 
 ContentSwitcher {
-    background: #1e1e2e;
+    background: $background;
     height: 1fr;
 }
 
 TabPane {
-    background: #1e1e2e;
+    background: $background;
     padding: 1 2;
     height: 1fr;
 }
 
 Tabs {
-    background: #181825;
+    background: $panel;
     dock: top;
 }
 
 Tab {
-    background: #181825;
-    color: #6c7086;
+    background: $panel;
+    color: $foreground 40%;
     padding: 0 2;
 }
 
 Tab.-active {
-    color: #a6e3a1;
+    color: $primary;
     text-style: bold;
-    background: #313244;
+    background: $surface;
 }
 
 Tab:hover {
-    color: #cdd6f4;
+    color: $foreground;
 }
 
 /* ── Typography ───────────────────────────────────── */
 
 Static {
-    color: #cdd6f4;
+    color: $foreground;
 }
 
 /* ── DataTable ────────────────────────────────────── */
 
 DataTable {
-    background: #1e1e2e;
-    color: #cdd6f4;
+    background: $background;
+    color: $foreground;
     height: 1fr;
 }
 
 DataTable > .datatable--header {
-    background: #313244;
-    color: #a6e3a1;
+    background: $surface;
+    color: $primary;
     text-style: bold;
 }
 
 DataTable > .datatable--cursor {
-    background: #45475a;
-    color: #cdd6f4;
+    background: $surface;
+    color: $foreground;
     text-style: bold;
 }
 
 DataTable > .datatable--even-row {
-    background: #1e1e2e;
+    background: $background;
 }
 
 DataTable > .datatable--odd-row {
-    background: #232336;
+    background: $background 80%;
 }
 
 DataTable:focus > .datatable--cursor {
-    background: #585b70;
-    color: #cdd6f4;
+    background: $accent;
+    color: $foreground;
 }
 
 /* ── Input / TextArea ─────────────────────────────── */
 
 Input {
-    background: #313244;
-    color: #cdd6f4;
-    border: tall #45475a;
+    background: $surface;
+    color: $foreground;
+    border: tall $surface;
 }
 
 Input:focus {
-    border: tall #a6e3a1;
+    border: tall $primary;
 }
 
 TextArea {
-    background: #313244;
-    color: #cdd6f4;
+    background: $surface;
+    color: $foreground;
 }
 
 /* ── Buttons ──────────────────────────────────────── */
 
 Button {
-    background: #45475a;
-    color: #cdd6f4;
-    border: tall #585b70;
+    background: $surface;
+    color: $foreground;
+    border: tall $surface;
 }
 
 Button:hover {
-    background: #585b70;
-    color: #cdd6f4;
+    background: $primary 20%;
+    color: $foreground;
 }
 
 Button.-primary {
-    background: #a6e3a1;
-    color: #1e1e2e;
-    border: tall #a6e3a1;
+    background: $primary;
+    color: $background;
+    border: tall $primary;
     text-style: bold;
 }
 
 Button.-primary:hover {
-    background: #94e2d5;
+    background: $primary 80%;
 }
 
 Select {
-    background: #313244;
-    color: #cdd6f4;
+    background: $surface;
+    color: $foreground;
 }
 
 /* ── Help overlay ─────────────────────────────────── */
 
 HelpScreen {
-    background: rgba(17, 17, 27, 0.88);
+    background: $background 88%;
     align: center middle;
 }
 
 #help-dialog {
-    background: #313244;
-    border: heavy #a6e3a1;
+    background: $surface;
+    border: heavy $primary;
     padding: 2 4;
     width: 72;
     height: auto;
@@ -159,6 +163,6 @@ HelpScreen {
 /* ── Loading indicator ────────────────────────────── */
 
 .loading-indicator {
-    color: #6c7086;
+    color: $foreground 40%;
     text-style: italic;
 }

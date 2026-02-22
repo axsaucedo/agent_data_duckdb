@@ -22,7 +22,7 @@ class SQLScreen(Static):
     }
     #sql-title {
         text-style: bold;
-        color: #a6e3a1;
+        color: $primary;
         padding: 0 0 1 0;
     }
     #sql-toolbar {
@@ -48,7 +48,7 @@ class SQLScreen(Static):
         margin: 0 1 0 0;
     }
     #sql-status {
-        color: #a6adc8;
+        color: $foreground 60%;
         height: 1;
     }
     #sql-results {
@@ -56,8 +56,8 @@ class SQLScreen(Static):
         min-height: 6;
     }
     #samples-panel {
-        background: #313244;
-        border: round #45475a;
+        background: $surface;
+        border: round $surface;
         padding: 1 2;
         margin: 0 0 1 0;
         height: auto;

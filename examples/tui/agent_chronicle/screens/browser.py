@@ -133,7 +133,7 @@ class BrowserScreen(Static):
     }
     #browser-title {
         text-style: bold;
-        color: #a6e3a1;
+        color: $primary;
         padding: 0 0 1 0;
     }
     #table-view {
@@ -150,7 +150,7 @@ class BrowserScreen(Static):
         height: 1fr;
     }
     #session-count {
-        color: #a6adc8;
+        color: $foreground 60%;
         height: 1;
     }
     #timeline-view {
@@ -168,19 +168,19 @@ class BrowserScreen(Static):
         height: 1fr;
         overflow-y: auto;
         padding: 0 1;
-        background: #313244;
-        border-left: tall #45475a;
+        background: $surface;
+        border-left: tall $surface;
     }
     #back-button {
         margin: 0 0 0 0;
         dock: top;
     }
     #session-meta {
-        color: #a6adc8;
+        color: $foreground 60%;
         height: 1;
     }
     #stats-bar {
-        color: #6c7086;
+        color: $foreground 40%;
         height: 1;
     }
     """

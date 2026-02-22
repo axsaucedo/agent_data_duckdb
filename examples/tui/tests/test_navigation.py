@@ -80,3 +80,37 @@ class TestNavigation:
         async with app.run_test() as pilot:
             await pilot.press("K")
             assert app.title == "Agent Chronicle"
+
+
+class TestThemes:
+    @pytest.fixture
+    def app(self):
+        return AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot")
+
+    @pytest.mark.asyncio
+    async def test_default_theme_is_catppuccin(self, app):
+        async with app.run_test() as pilot:
+            assert app.theme == "catppuccin-mocha"
+
+    @pytest.mark.asyncio
+    async def test_custom_theme_from_init(self):
+        app = AgentChronicle(claude_path="test_data/claude", copilot_path="test_data/copilot", theme_name="dracula")
+        async with app.run_test() as pilot:
+            assert app.theme == "dracula"
+
+    @pytest.mark.asyncio
+    async def test_cycle_theme(self, app):
+        async with app.run_test() as pilot:
+            assert app.theme == "catppuccin-mocha"
+            await pilot.press("t")
+            assert app.theme == "dracula"
+            await pilot.press("t")
+            assert app.theme == "nord"
+
+    @pytest.mark.asyncio
+    async def test_all_themes_registered(self, app):
+        from agent_chronicle.themes import THEME_NAMES
+        async with app.run_test() as pilot:
+            for name in THEME_NAMES:
+                app.theme = name
+                assert app.theme == name

@@ -14,8 +14,8 @@ class MetricCard(Static):
 
     DEFAULT_CSS = """
     MetricCard {
-        background: #313244;
-        border: round #45475a;
+        background: $surface;
+        border: round $surface;
         padding: 1 2;
         margin: 0 1;
         height: 5;
@@ -23,10 +23,10 @@ class MetricCard(Static):
     }
     .metric-value {
         text-style: bold;
-        color: #a6e3a1;
+        color: $primary;
     }
     .metric-label {
-        color: #a6adc8;
+        color: $foreground 60%;
     }
     """
 
@@ -53,8 +53,8 @@ class StatsSection(Static):
 
     DEFAULT_CSS = """
     StatsSection {
-        background: #313244;
-        border: round #45475a;
+        background: $surface;
+        border: round $surface;
         padding: 1 2;
         margin: 1 1;
         height: auto;
@@ -93,7 +93,7 @@ class OverviewScreen(Static):
     }
     #overview-title {
         text-style: bold;
-        color: #a6e3a1;
+        color: $primary;
         padding: 0 0 1 0;
     }
     #metrics-row {

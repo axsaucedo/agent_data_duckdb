@@ -9,38 +9,39 @@ from textual.containers import Vertical
 from agent_chronicle.screens.overview import OverviewScreen
 from agent_chronicle.screens.browser import BrowserScreen
 from agent_chronicle.screens.sql import SQLScreen
+from agent_chronicle.themes import THEMES, DEFAULT_THEME, THEME_NAMES
 
 
 HELP_TEXT = """\
-[bold #a6e3a1]⌨  Agent Chronicle — Keyboard Reference[/bold #a6e3a1]
+[bold]⌨  Agent Chronicle — Keyboard Reference[/bold]
 
-[bold #89b4fa]Navigation[/bold #89b4fa]
-  [#a6e3a1]1  2  3[/#a6e3a1]       Jump to Overview / Browser / SQL tab
-  [#a6e3a1]H  L[/#a6e3a1]          Previous / Next tab  (Shift+h / Shift+l)
-  [#a6e3a1]J  K[/#a6e3a1]          Next / Previous focus  (Shift+j / Shift+k)
-  [#a6e3a1]Tab[/#a6e3a1]           Cycle focus forward
-  [#a6e3a1]Shift+Tab[/#a6e3a1]     Cycle focus backward
+[bold]Navigation[/bold]
+  1  2  3       Jump to Overview / Browser / SQL tab
+  H  L          Previous / Next tab  (Shift+h / Shift+l)
+  J  K          Next / Previous focus  (Shift+j / Shift+k)
+  Tab           Cycle focus forward
+  Shift+Tab     Cycle focus backward
 
-[bold #89b4fa]Vim Motions (in tables)[/bold #89b4fa]
-  [#a6e3a1]j  k[/#a6e3a1]          Move cursor down / up
-  [#a6e3a1]l  Enter[/#a6e3a1]      Open / drill into selection
-  [#a6e3a1]h  Escape[/#a6e3a1]     Go back / close detail
+[bold]Vim Motions (in tables)[/bold]
+  j  k          Move cursor down / up
+  l  Enter      Open / drill into selection
+  h  Escape     Go back / close detail
 
-[bold #89b4fa]Session Browser[/bold #89b4fa]
-  [#a6e3a1]j  k[/#a6e3a1]          Navigate sessions or events
-  [#a6e3a1]l  Enter[/#a6e3a1]      Open session → timeline → event detail
-  [#a6e3a1]h  Escape[/#a6e3a1]     Back to session list
-  [#a6e3a1]/[/#a6e3a1]             Focus filter input
+[bold]Session Browser[/bold]
+  j  k          Navigate sessions or events
+  l  Enter      Open session → timeline → event detail
+  h  Escape     Back to session list
+  /             Focus filter input
 
-[bold #89b4fa]SQL Query[/bold #89b4fa]
-  [#a6e3a1]F5[/#a6e3a1]            Execute query
-  [#a6e3a1]Ctrl+Enter[/#a6e3a1]    Execute query (alt)
+[bold]SQL Query[/bold]
+  F5            Execute query
 
-[bold #89b4fa]General[/bold #89b4fa]
-  [#a6e3a1]?[/#a6e3a1]             Toggle this help
-  [#a6e3a1]q[/#a6e3a1]             Quit
+[bold]General[/bold]
+  t             Cycle theme
+  ?             Toggle this help
+  q             Quit
 
-[dim #6c7086]Press ? or Escape to close[/dim #6c7086]
+Press ? or Escape to close
 """
 
 
@@ -72,14 +73,19 @@ class AgentChronicle(App):
         Binding("L", "next_tab", "Tab→", show=False),
         Binding("J", "focus_next", "Focus↓", show=False),
         Binding("K", "focus_previous", "Focus↑", show=False),
+        Binding("t", "cycle_theme", "Theme", show=True),
         Binding("question_mark", "toggle_help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
     ]
 
-    def __init__(self, claude_path: str = "~/.claude", copilot_path: str = "~/.copilot"):
+    def __init__(self, claude_path: str = "~/.claude", copilot_path: str = "~/.copilot", theme_name: str = DEFAULT_THEME):
         super().__init__()
         self.claude_path = claude_path
         self.copilot_path = copilot_path
+        self._theme_name = theme_name
+        for t in THEMES.values():
+            self.register_theme(t)
+        self.theme = self._theme_name
 
     def compose(self) -> ComposeResult:
         yield Header(show_clock=True)
@@ -107,6 +113,12 @@ class AgentChronicle(App):
         tabs = self.query_one("#tabs", TabbedContent)
         idx = tab_order.index(tabs.active) if tabs.active in tab_order else 0
         tabs.active = tab_order[(idx + 1) % len(tab_order)]
+
+    def action_cycle_theme(self) -> None:
+        idx = THEME_NAMES.index(self.theme) if self.theme in THEME_NAMES else -1
+        next_theme = THEME_NAMES[(idx + 1) % len(THEME_NAMES)]
+        self.theme = next_theme
+        self.notify(f"Theme: {next_theme}", timeout=2)
 
     def action_toggle_help(self) -> None:
         self.push_screen(HelpScreen())
