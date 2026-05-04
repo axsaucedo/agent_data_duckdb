@@ -344,6 +344,19 @@ The compiled extension is at `build/debug/agent_data.duckdb_extension` (or `buil
 duckdb -unsigned -c "LOAD 'build/debug/agent_data.duckdb_extension'; FROM read_conversations();"
 ```
 
+## Community Extension Release Checklist
+
+When DuckDB publishes a new stable release, keep the community package aligned with
+the latest stable target:
+
+1. Update `duckdb` and `libduckdb-sys` in `Cargo.toml` to the crate version for the new DuckDB stable release, then refresh `Cargo.lock`.
+2. Update `TARGET_DUCKDB_VERSION` in `Makefile`.
+3. Update `.github/workflows/MainDistributionPipeline.yml` to the matching `duckdb_version`, `ci_tools_version`, and reusable `extension-ci-tools` workflow ref.
+4. Update example DuckDB constraints if the examples should validate against the new stable release.
+5. Run `make configure`, `make debug`, `make test`, `cargo test --locked`, and example smoke tests that load `AGENT_DATA_EXTENSION_PATH=build/debug/agent_data.duckdb_extension`.
+6. Update `duckdb/community-extensions` `extensions/agent_data/description.yml` so `repo.ref` points at the validated commit.
+7. After the upstream community-extension workflow deploys, verify `https://community-extensions.duckdb.org/<duckdb-version>/<platform>/agent_data.duckdb_extension.gz` returns 200 and `agent_data` appears on the DuckDB community extension list.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
