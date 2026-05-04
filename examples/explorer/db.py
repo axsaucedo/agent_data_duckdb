@@ -9,6 +9,23 @@ import streamlit as st
 logger = logging.getLogger(__name__)
 
 
+def _connect() -> duckdb.DuckDBPyConnection:
+    if os.environ.get("AGENT_DATA_EXTENSION_PATH"):
+        return duckdb.connect(config={"allow_unsigned_extensions": "true"})
+    return duckdb.connect()
+
+
+def _load_agent_data(con: duckdb.DuckDBPyConnection) -> None:
+    extension_path = os.environ.get("AGENT_DATA_EXTENSION_PATH")
+    if extension_path:
+        path = os.path.abspath(os.path.expanduser(extension_path)).replace("'", "''")
+        con.execute(f"LOAD '{path}'")
+        return
+
+    con.execute("INSTALL agent_data FROM community")
+    con.execute("LOAD agent_data")
+
+
 def get_connection() -> duckdb.DuckDBPyConnection:
     """Return a cached DuckDB connection with the agent_data extension loaded.
     
@@ -23,9 +40,8 @@ def get_connection() -> duckdb.DuckDBPyConnection:
             logger.warning("Stale DuckDB connection detected, reconnecting")
             st.cache_data.clear()
             st.session_state.pop("duckdb_con", None)
-    con = duckdb.connect()
-    con.execute("INSTALL agent_data FROM community")
-    con.execute("LOAD agent_data")
+    con = _connect()
+    _load_agent_data(con)
     st.session_state["duckdb_con"] = con
     return con
 

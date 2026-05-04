@@ -21,6 +21,24 @@ _connection: duckdb.DuckDBPyConnection | None = None
 _cache: dict[str, tuple[float, pd.DataFrame]] = {}
 
 
+def _connect() -> duckdb.DuckDBPyConnection:
+    if os.environ.get("AGENT_DATA_EXTENSION_PATH"):
+        return duckdb.connect(config={"allow_unsigned_extensions": "true"})
+    return duckdb.connect()
+
+
+def _load_agent_data(con: duckdb.DuckDBPyConnection) -> None:
+    extension_path = os.environ.get("AGENT_DATA_EXTENSION_PATH")
+    if extension_path:
+        path = Path(extension_path).expanduser().resolve()
+        escaped_path = path.as_posix().replace("'", "''")
+        con.execute(f"LOAD '{escaped_path}'")
+        return
+
+    con.execute("INSTALL agent_data FROM community")
+    con.execute("LOAD agent_data")
+
+
 def get_connection() -> duckdb.DuckDBPyConnection:
     """Return a DuckDB connection with agent_data extension loaded.
 
@@ -36,9 +54,8 @@ def get_connection() -> duckdb.DuckDBPyConnection:
             _connection = None
             _cache.clear()
 
-    con = duckdb.connect()
-    con.execute("INSTALL agent_data FROM community")
-    con.execute("LOAD agent_data")
+    con = _connect()
+    _load_agent_data(con)
     _connection = con
     return con
 
@@ -91,9 +108,9 @@ def _cached_query(key: str, sql: str) -> pd.DataFrame:
 
 def _threaded_query(sql: str) -> pd.DataFrame:
     """Execute a query in a fresh connection (thread-safe for workers)."""
-    con = duckdb.connect()
+    con = _connect()
     try:
-        con.execute("LOAD agent_data")
+        _load_agent_data(con)
         return con.execute(sql).df()
     except Exception as e:
         logger.error("Threaded query failed: %s", e)
@@ -104,10 +121,10 @@ def _threaded_query(sql: str) -> pd.DataFrame:
 
 def _run_queries_threaded(queries: dict[str, str]) -> dict[str, pd.DataFrame]:
     """Run multiple queries in a single thread-local connection."""
-    con = duckdb.connect()
+    con = _connect()
     results: dict[str, pd.DataFrame] = {}
     try:
-        con.execute("LOAD agent_data")
+        _load_agent_data(con)
         for key, sql in queries.items():
             try:
                 results[key] = con.execute(sql).df()
