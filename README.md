@@ -349,13 +349,61 @@ duckdb -unsigned -c "LOAD 'build/debug/agent_data.duckdb_extension'; FROM read_c
 When DuckDB publishes a new stable release, keep the community package aligned with
 the latest stable target:
 
-1. Update `duckdb` and `libduckdb-sys` in `Cargo.toml` to the crate version for the new DuckDB stable release, then refresh `Cargo.lock`.
-2. Update `TARGET_DUCKDB_VERSION` in `Makefile`.
-3. Update `.github/workflows/MainDistributionPipeline.yml` to the matching `duckdb_version`, `ci_tools_version`, and reusable `extension-ci-tools` workflow ref.
-4. Update example DuckDB constraints if the examples should validate against the new stable release.
-5. Run `make configure`, `make debug`, `make test`, `cargo test --locked`, and example smoke tests that load `AGENT_DATA_EXTENSION_PATH=build/debug/agent_data.duckdb_extension`.
-6. Update `duckdb/community-extensions` `extensions/agent_data/description.yml` so `repo.ref` points at the validated commit.
-7. After the upstream community-extension workflow deploys, verify `https://community-extensions.duckdb.org/<duckdb-version>/<platform>/agent_data.duckdb_extension.gz` returns 200 and `agent_data` appears on the DuckDB community extension list.
+1. Check whether the repo is still aligned with DuckDB latest stable:
+
+   ```bash
+   python3 scripts/update_duckdb_release.py --check
+   ```
+
+2. If a new stable release exists, update all local release surfaces:
+
+   ```bash
+   python3 scripts/update_duckdb_release.py --apply
+   ```
+
+   This updates `duckdb-release.toml`, `Cargo.toml`, `Cargo.lock`,
+   `Makefile`, `.github/workflows/MainDistributionPipeline.yml`, and
+   example DuckDB Python constraints.
+
+3. Run the full local validation entrypoint:
+
+   ```bash
+   scripts/validate_duckdb_release.sh
+   ```
+
+   This runs Rust/build/test checks and an exact-version DuckDB Python smoke
+   test that loads `build/debug/agent_data.duckdb_extension`.
+
+4. Update `duckdb/community-extensions` after the source commit is validated:
+
+   ```bash
+   scripts/prepare_community_extension_pr.py --open-pr
+   ```
+
+   Keep upstream `repo.ref` immutable. A commit SHA is preferred; an immutable
+   tag is also acceptable when maintainers intentionally release by tag. Do not
+   use `main` as the stable ref because community builds should be reproducible.
+
+5. After the upstream community-extension workflow deploys from a trusted
+   context, verify publication:
+
+   ```bash
+   uv run --with duckdb==$(python3 - <<'PY'
+import tomllib
+print(tomllib.load(open("duckdb-release.toml", "rb"))["duckdb"]["python_version"])
+PY
+) python scripts/verify_community_publication.py
+   ```
+
+   Pull-request deploys may build artifacts without publishing public binaries
+   when upstream secrets are unavailable.
+
+The scheduled `DuckDB Release Monitor` workflow checks for stable-release drift
+and opens a PR when the updater and validation pass. The `DuckDB Next
+Compatibility` workflow can be run on schedule or manually to test DuckDB
+`main`/next without publishing binaries. For DuckDB feature-freeze branches,
+use upstream `repo.ref_next` for pre-release validation, then update `repo.ref`
+after the stable source commit is merged.
 
 ## License
 
