@@ -30,3 +30,11 @@ AGENT_DATA_CLAUDE_PATH=~/custom/.claude \
 AGENT_DATA_COPILOT_PATH=~/custom/.copilot \
 streamlit run app.py
 ```
+
+Use a locally built extension during development or before community binaries
+are available for a new DuckDB release:
+
+```bash
+AGENT_DATA_EXTENSION_PATH=../../build/debug/agent_data.duckdb_extension \
+streamlit run app.py
+```

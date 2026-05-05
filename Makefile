@@ -8,7 +8,7 @@ EXTENSION_NAME=agent_data
 USE_UNSTABLE_C_API=1
 
 # Target DuckDB version
-TARGET_DUCKDB_VERSION=v1.4.4
+TARGET_DUCKDB_VERSION=v1.5.2
 
 all: configure debug
 

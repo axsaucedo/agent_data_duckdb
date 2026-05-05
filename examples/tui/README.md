@@ -28,6 +28,14 @@ Or with custom data paths:
 uv run python -m agent_chronicle --claude-path ~/.claude --copilot-path ~/.copilot
 ```
 
+Use a locally built extension during development or before community binaries
+are available for a new DuckDB release:
+
+```bash
+AGENT_DATA_EXTENSION_PATH=../../build/debug/agent_data.duckdb_extension \
+uv run python -m agent_chronicle
+```
+
 ## Development
 
 ```bash
@@ -54,8 +62,9 @@ make test      # Run tests (42 assertions)
 ## Architecture
 
 Built with Python Textual, reusing the data layer from the Streamlit explorer.
-The app loads the `agent_data` DuckDB community extension to read Claude and
-Copilot session data directly from their local storage directories.
+The app loads the `agent_data` DuckDB community extension, or the local path in
+`AGENT_DATA_EXTENSION_PATH`, to read Claude and Copilot session data directly
+from their local storage directories.
 
 Data loading is async (threaded workers with per-thread DuckDB connections)
 so the UI never blocks during startup or query execution.
