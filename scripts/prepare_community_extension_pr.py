@@ -6,12 +6,14 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMMUNITY_REPO = ROOT / "tmp" / "community-extensions"
 DESCRIPTOR = Path("extensions/agent_data/description.yml")
+DEFAULT_BODY_TEMPLATE = ROOT / "scripts" / "community_extension_pr_body_template.md"
 
 
 def run(command: list[str], cwd: Path = ROOT, check: bool = True) -> subprocess.CompletedProcess[str]:
@@ -21,6 +23,13 @@ def run(command: list[str], cwd: Path = ROOT, check: bool = True) -> subprocess.
 
 def output(command: list[str], cwd: Path = ROOT) -> str:
     return subprocess.check_output(command, cwd=cwd, text=True).strip()
+
+
+def optional_output(command: list[str], cwd: Path = ROOT) -> str | None:
+    try:
+        return output(command, cwd=cwd)
+    except subprocess.CalledProcessError:
+        return None
 
 
 def ensure_clean_source() -> None:
@@ -55,19 +64,52 @@ def update_descriptor(path: Path, source_ref: str) -> None:
     path.write_text("\n".join(new_lines) + "\n")
 
 
+def release_metadata() -> dict[str, str]:
+    with open(ROOT / "duckdb-release.toml", "rb") as handle:
+        data = tomllib.load(handle)
+    return {
+        "duckdb_version": data["duckdb"]["version"],
+        "duckdb_python_version": data["duckdb"]["python_version"],
+        "crate_version": data["duckdb"]["crate_version"],
+        "ci_tools_ref": data["ci"]["tools_ref"],
+    }
+
+
+def source_pr_url(explicit_url: str | None) -> str:
+    if explicit_url:
+        return explicit_url
+    detected = optional_output(["gh", "pr", "view", "--json", "url", "--jq", ".url"])
+    return detected or "TODO: add source PR URL"
+
+
+def render_body(template: Path, source_ref: str, explicit_source_pr_url: str | None) -> str:
+    values = release_metadata()
+    values["source_ref"] = source_ref
+    values["source_pr_url"] = source_pr_url(explicit_source_pr_url)
+    return template.read_text().format(**values)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--community-repo", type=Path, default=DEFAULT_COMMUNITY_REPO)
     parser.add_argument("--source-ref", default=None, help="Source commit/tag to write; defaults to HEAD SHA")
     parser.add_argument("--branch", default="bump-agent-data-duckdb-release")
+    parser.add_argument("--body-template", type=Path, default=DEFAULT_BODY_TEMPLATE)
+    parser.add_argument("--source-pr-url", help="Source repository PR URL to include in the upstream PR body")
+    parser.add_argument("--print-body", action="store_true", help="Render the upstream PR body and exit")
     parser.add_argument("--open-pr", action="store_true", help="Open a PR with gh after committing")
     parser.add_argument("--skip-clean-check", action="store_true")
     args = parser.parse_args()
 
+    source_ref = args.source_ref or output(["git", "rev-parse", "HEAD"])
+    body = render_body(args.body_template, source_ref, args.source_pr_url)
+    if args.print_body:
+        print(body)
+        return 0
+
     if not args.skip_clean_check:
         ensure_clean_source()
 
-    source_ref = args.source_ref or output(["git", "rev-parse", "HEAD"])
     community_repo = args.community_repo.resolve()
     if not community_repo.exists():
         run(["git", "clone", "https://github.com/duckdb/community-extensions.git", str(community_repo)])
@@ -98,7 +140,7 @@ def main() -> int:
                 "--title",
                 "agent_data: update source ref",
                 "--body",
-                f"Updates `agent_data` to validated source ref `{source_ref}`.",
+                body,
             ],
             cwd=community_repo,
         )
