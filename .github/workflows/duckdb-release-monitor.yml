@@ -1,0 +1,88 @@
+name: DuckDB Release Monitor
+
+on:
+  schedule:
+    - cron: "19 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      duckdb_version:
+        description: "DuckDB version to check/apply, e.g. v1.5.2. Defaults to latest release."
+        required: false
+        type: string
+  pull_request:
+    paths:
+      - duckdb-release.toml
+      - scripts/update_duckdb_release.py
+      - scripts/validate_duckdb_release.sh
+      - scripts/smoke_duckdb_release.py
+      - .github/workflows/duckdb-release-monitor.yml
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  release-drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Check DuckDB release drift
+        id: drift
+        continue-on-error: true
+        run: |
+          args=(--check)
+          if [ -n "${{ inputs.duckdb_version || '' }}" ]; then
+            args+=(--duckdb-version "${{ inputs.duckdb_version }}")
+          fi
+          python3 scripts/update_duckdb_release.py "${args[@]}"
+
+      - name: Fail pull request on release drift
+        if: steps.drift.outcome == 'failure' && github.event_name == 'pull_request'
+        run: exit 1
+
+      - name: Apply DuckDB release update
+        if: steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        run: |
+          args=(--apply)
+          if [ -n "${{ inputs.duckdb_version || '' }}" ]; then
+            args+=(--duckdb-version "${{ inputs.duckdb_version }}")
+          fi
+          python3 scripts/update_duckdb_release.py "${args[@]}"
+
+      - name: Validate generated update
+        if: steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        run: scripts/validate_duckdb_release.sh
+
+      - name: Open release update PR
+        if: steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/duckdb-release-update
+          title: "chore: update DuckDB release target"
+          body: |
+            Automated DuckDB release target update.
+
+            This PR was generated after `scripts/update_duckdb_release.py --apply`
+            and `scripts/validate_duckdb_release.sh` completed successfully.
+          commit-message: |
+            chore: update DuckDB release target
+
+            Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
+
+      - name: Open failure issue
+        if: failure() && steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="DuckDB release automation failed"
+          body="DuckDB release drift was detected, but the automated updater or validation failed in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
+          existing="$(gh issue list --state open --label duckdb-release-drift --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --label duckdb-release-drift
+          fi

@@ -1,0 +1,31 @@
+name: DuckDB Next Compatibility
+
+on:
+  schedule:
+    - cron: "43 7 * * 2"
+  workflow_dispatch:
+    inputs:
+      duckdb_version:
+        description: "DuckDB development target or release branch"
+        required: false
+        default: "main"
+        type: string
+      ci_tools_version:
+        description: "extension-ci-tools ref"
+        required: false
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  duckdb-next-build:
+    name: Build against DuckDB next
+    uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
+    with:
+      duckdb_version: ${{ inputs.duckdb_version || 'main' }}
+      ci_tools_version: ${{ inputs.ci_tools_version || 'main' }}
+      extension_name: agent_data
+      extra_toolchains: rust
+      exclude_archs: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"

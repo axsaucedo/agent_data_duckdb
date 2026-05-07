@@ -1,0 +1,8 @@
+[duckdb]
+version = "v1.5.2"
+python_version = "1.5.2"
+crate_version = "1.10502.0"
+
+[ci]
+tools_ref = "v1.5-variegata"
+excluded_archs = "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"
