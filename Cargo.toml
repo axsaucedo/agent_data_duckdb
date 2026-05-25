@@ -12,8 +12,8 @@ lto = true
 strip = true
 
 [dependencies]
-duckdb = { version = "=1.10502.0", features = ["loadable-extension"] }
-libduckdb-sys = "=1.10502.0"
+duckdb = { version = "=1.10503.1", features = ["loadable-extension"] }
+libduckdb-sys = "=1.10503.1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"

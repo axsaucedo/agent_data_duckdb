@@ -49,18 +49,26 @@ pub fn set_varchar_opt(output: &mut DataChunkHandle, col: usize, row: usize, val
 
 pub fn set_bool(output: &mut DataChunkHandle, col: usize, row: usize, val: bool) {
     let mut vec = output.flat_vector(col);
-    vec.as_mut_slice::<bool>()[row] = val;
+    // SAFETY: DuckDB owns this output vector for the current callback, `row` is
+    // within the batch we are writing, and the column is declared as BOOLEAN.
+    unsafe { vec.as_mut_slice::<bool>()[row] = val };
 }
 
 pub fn set_i64(output: &mut DataChunkHandle, col: usize, row: usize, val: i64) {
     let mut vec = output.flat_vector(col);
-    vec.as_mut_slice::<i64>()[row] = val;
+    // SAFETY: DuckDB owns this output vector for the current callback, `row` is
+    // within the batch we are writing, and the column is declared as BIGINT.
+    unsafe { vec.as_mut_slice::<i64>()[row] = val };
 }
 
 pub fn set_i64_opt(output: &mut DataChunkHandle, col: usize, row: usize, val: Option<i64>) {
     let mut vec = output.flat_vector(col);
     match val {
-        Some(v) => vec.as_mut_slice::<i64>()[row] = v,
+        Some(v) => {
+            // SAFETY: DuckDB owns this output vector for the current callback,
+            // `row` is within the batch we are writing, and the column is BIGINT.
+            unsafe { vec.as_mut_slice::<i64>()[row] = v };
+        }
         None => vec.set_null(row),
     }
 }

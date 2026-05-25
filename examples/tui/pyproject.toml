@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "textual>=1.0.0",
-    "duckdb>=1.5.2",
+    "duckdb>=1.5.3",
     "pandas>=2.0",
 ]
 
