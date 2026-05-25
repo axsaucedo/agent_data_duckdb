@@ -8,6 +8,7 @@ mkdir -p tmp
 
 python3 scripts/update_duckdb_release.py --check
 
+make clean_all
 cargo metadata --locked > tmp/cargo-metadata.json
 cargo check --locked
 make configure
