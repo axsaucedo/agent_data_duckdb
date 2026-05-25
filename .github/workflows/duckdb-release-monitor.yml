@@ -32,20 +32,34 @@ jobs:
 
       - name: Check DuckDB release drift
         id: drift
-        continue-on-error: true
         run: |
           args=(--check)
           if [ -n "${{ inputs.duckdb_version || '' }}" ]; then
             args+=(--duckdb-version "${{ inputs.duckdb_version }}")
           fi
+          set +e
           python3 scripts/update_duckdb_release.py "${args[@]}"
+          rc=$?
+          set -e
+          echo "exit_code=$rc" >> "$GITHUB_OUTPUT"
+          case "$rc" in
+            0)
+              echo "status=current" >> "$GITHUB_OUTPUT"
+              ;;
+            10)
+              echo "status=drift" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "status=error" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
 
-      - name: Fail pull request on release drift
-        if: steps.drift.outcome == 'failure' && github.event_name == 'pull_request'
+      - name: Fail pull request on release drift or check error
+        if: steps.drift.outputs.status != 'current' && github.event_name == 'pull_request'
         run: exit 1
 
       - name: Apply DuckDB release update
-        if: steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        if: steps.drift.outputs.status == 'drift' && github.event_name != 'pull_request'
         run: |
           args=(--apply)
           if [ -n "${{ inputs.duckdb_version || '' }}" ]; then
@@ -54,11 +68,11 @@ jobs:
           python3 scripts/update_duckdb_release.py "${args[@]}"
 
       - name: Validate generated update
-        if: steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        if: steps.drift.outputs.status == 'drift' && github.event_name != 'pull_request'
         run: scripts/validate_duckdb_release.sh
 
       - name: Open release update PR
-        if: steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        if: steps.drift.outputs.status == 'drift' && github.event_name != 'pull_request'
         uses: peter-evans/create-pull-request@v7
         with:
           branch: automation/duckdb-release-update
@@ -74,15 +88,32 @@ jobs:
             Co-authored-by: Copilot <223556219+Copilot@users.noreply.github.com>
 
       - name: Open failure issue
-        if: failure() && steps.drift.outcome == 'failure' && github.event_name != 'pull_request'
+        if: (failure() || steps.drift.outputs.status == 'error') && github.event_name != 'pull_request'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           title="DuckDB release automation failed"
           body="DuckDB release drift was detected, but the automated updater or validation failed in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}."
-          existing="$(gh issue list --state open --label duckdb-release-drift --json number --jq '.[0].number // empty')"
+          {
+            echo "## DuckDB release automation failed"
+            echo ""
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Drift check status: ${{ steps.drift.outputs.status }}"
+            echo "- Drift check exit code: ${{ steps.drift.outputs.exit_code }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          label_args=()
+          if gh label create duckdb-release-drift --color BFDADC --description "DuckDB release drift automation" --force; then
+            label_args=(--label duckdb-release-drift)
+            existing="$(gh issue list --state open "${label_args[@]}" --json number --jq '.[0].number // empty')"
+          else
+            echo "Could not create duckdb-release-drift label; creating issue without label." >> "$GITHUB_STEP_SUMMARY"
+            existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          fi
           if [ -n "$existing" ]; then
             gh issue comment "$existing" --body "$body"
           else
-            gh issue create --title "$title" --body "$body" --label duckdb-release-drift
+            gh issue create --title "$title" --body "$body" "${label_args[@]}"
+          fi
+          if [ "${{ steps.drift.outputs.status }}" = "error" ]; then
+            exit 1
           fi

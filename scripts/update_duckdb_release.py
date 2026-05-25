@@ -17,6 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 METADATA = ROOT / "duckdb-release.toml"
 EXTENSION_WORKFLOW = ROOT / ".github" / "workflows" / "MainDistributionPipeline.yml"
+EXIT_CURRENT = 0
+EXIT_ERROR = 1
+EXIT_DRIFT = 10
 EXAMPLE_PYPROJECTS = [
     ROOT / "examples" / "explorer" / "pyproject.toml",
     ROOT / "examples" / "marimo" / "pyproject.toml",
@@ -76,9 +79,27 @@ def candidate_crate_versions(duckdb_version: str) -> list[str]:
     return list(dict.fromkeys([encoded, normal]))
 
 
+def version_key(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
+
+
 def resolve_crate_version(duckdb_version: str) -> str:
     duckdb_versions = crate_versions("duckdb")
     sys_versions = crate_versions("libduckdb-sys")
+    major, minor, patch = duckdb_version_parts(duckdb_version)
+    encoded_prefix = f"{major}.{10000 + (minor * 100) + patch}."
+    encoded_matches = sorted(
+        (
+            version
+            for version in duckdb_versions.intersection(sys_versions)
+            if version.startswith(encoded_prefix)
+        ),
+        key=version_key,
+        reverse=True,
+    )
+    if encoded_matches:
+        return encoded_matches[0]
+
     for candidate in candidate_crate_versions(duckdb_version):
         if candidate in duckdb_versions and candidate in sys_versions:
             return candidate
@@ -303,13 +324,13 @@ def main() -> int:
         print(f"DuckDB release drift detected for {target.duckdb_version}:")
         for mismatch in mismatches:
             print(f"- {mismatch}")
-        return 1
+        return EXIT_ERROR if args.apply else EXIT_DRIFT
 
     print(
         "DuckDB release configuration is current: "
         f"{target.duckdb_version} / crate {target.crate_version} / CI {target.ci_tools_ref}"
     )
-    return 0
+    return EXIT_CURRENT
 
 
 if __name__ == "__main__":
