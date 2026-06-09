@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import re
+import subprocess
 import sys
 from collections.abc import Callable
 from pathlib import Path
@@ -13,13 +14,36 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def duckdb_source_id() -> str:
+def duckdb_python_source_id() -> str:
     import duckdb
 
     row = duckdb.connect().execute("PRAGMA version").fetchone()
     if row is None or len(row) < 2 or not row[1]:
         raise RuntimeError(f"Could not read DuckDB source id from PRAGMA version: {row!r}")
     return str(row[1])
+
+
+def duckdb_git_source_id(duckdb_dir: Path = ROOT / "duckdb") -> str:
+    result = subprocess.run(
+        ["git", "-C", str(duckdb_dir), "rev-parse", "--short=10", "HEAD"],
+        check=True,
+        text=True,
+        capture_output=True,
+    )
+    source_id = result.stdout.strip()
+    if not source_id:
+        raise RuntimeError(f"Could not read DuckDB source id from git repository {duckdb_dir}")
+    return source_id
+
+
+def duckdb_source_id() -> str:
+    errors: list[str] = []
+    for resolver in (duckdb_python_source_id, duckdb_git_source_id):
+        try:
+            return resolver()
+        except Exception as exc:
+            errors.append(str(exc))
+    raise RuntimeError("Could not resolve DuckDB source id: " + "; ".join(errors))
 
 
 def resolve_metadata_version(

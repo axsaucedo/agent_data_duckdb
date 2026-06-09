@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import duckdb_metadata_version
 
@@ -56,6 +57,29 @@ class DuckDBMetadataVersionTests(unittest.TestCase):
             makefile = Path(temp_dir) / "Makefile"
             makefile.write_text("DEFAULT_TARGET_DUCKDB_VERSION := v1.5.4\n")
             self.assertEqual(duckdb_metadata_version.default_metadata_version(makefile), "v1.5.4")
+
+    def test_duckdb_source_id_falls_back_to_git(self) -> None:
+        with mock.patch.object(
+            duckdb_metadata_version,
+            "duckdb_python_source_id",
+            side_effect=RuntimeError("missing duckdb"),
+        ):
+            with mock.patch.object(duckdb_metadata_version, "duckdb_git_source_id", return_value="abcdef1234"):
+                self.assertEqual(duckdb_metadata_version.duckdb_source_id(), "abcdef1234")
+
+    def test_duckdb_source_id_reports_all_failures(self) -> None:
+        with mock.patch.object(
+            duckdb_metadata_version,
+            "duckdb_python_source_id",
+            side_effect=RuntimeError("missing duckdb"),
+        ):
+            with mock.patch.object(
+                duckdb_metadata_version,
+                "duckdb_git_source_id",
+                side_effect=RuntimeError("missing git checkout"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "missing duckdb.*missing git checkout"):
+                    duckdb_metadata_version.duckdb_source_id()
 
 
 if __name__ == "__main__":

@@ -20,6 +20,9 @@ include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
 ifeq ($(TARGET_DUCKDB_VERSION),__AGENT_DATA_AUTO__)
   RESOLVE_DUCKDB_METADATA_VERSION = scripts/duckdb_metadata_version.py --duckdb-git-version "$(DUCKDB_GIT_VERSION)" --default "$(DEFAULT_TARGET_DUCKDB_VERSION)"
   override TARGET_DUCKDB_VERSION = $(shell $(PYTHON_VENV_BIN) $(RESOLVE_DUCKDB_METADATA_VERSION) 2>/dev/null || $(PYTHON_BIN) $(RESOLVE_DUCKDB_METADATA_VERSION))
+  ifeq ($(TARGET_DUCKDB_VERSION),)
+    $(error Could not resolve TARGET_DUCKDB_VERSION)
+  endif
 endif
 
 configure: venv platform extension_version
