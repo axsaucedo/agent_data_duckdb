@@ -18,13 +18,19 @@ include extension-ci-tools/makefiles/c_api_extensions/base.Makefile
 include extension-ci-tools/makefiles/c_api_extensions/rust.Makefile
 
 ifeq ($(TARGET_DUCKDB_VERSION),__AGENT_DATA_AUTO__)
-  RESOLVE_DUCKDB_METADATA_VERSION = scripts/duckdb_metadata_version.py --duckdb-git-version "$(DUCKDB_GIT_VERSION)" --default "$(DEFAULT_TARGET_DUCKDB_VERSION)"
+  EFFECTIVE_DUCKDB_GIT_VERSION = $(if $(DUCKDB_GIT_VERSION),$(DUCKDB_GIT_VERSION),$(shell cat configure/duckdb_git_version.txt 2>/dev/null))
+  RESOLVE_DUCKDB_METADATA_VERSION = scripts/duckdb_metadata_version.py --duckdb-git-version "$(EFFECTIVE_DUCKDB_GIT_VERSION)" --default "$(DEFAULT_TARGET_DUCKDB_VERSION)"
   override TARGET_DUCKDB_VERSION = $(shell $(PYTHON_VENV_BIN) $(RESOLVE_DUCKDB_METADATA_VERSION) 2>/dev/null || $(PYTHON_BIN) $(RESOLVE_DUCKDB_METADATA_VERSION))
 endif
 check_target_duckdb_version:
 	@test -n "$(TARGET_DUCKDB_VERSION)" || (echo "Could not resolve TARGET_DUCKDB_VERSION" >&2; exit 1)
 
-configure: venv platform extension_version
+configure: venv platform extension_version duckdb_git_version
+
+.PHONY: duckdb_git_version
+duckdb_git_version:
+	@mkdir -p configure
+	@printf '%s\n' "$(DUCKDB_GIT_VERSION)" > configure/duckdb_git_version.txt
 
 debug: build_extension_library_debug build_extension_with_metadata_debug
 
