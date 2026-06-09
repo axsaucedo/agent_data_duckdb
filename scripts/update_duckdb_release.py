@@ -187,8 +187,8 @@ def apply_target(target: ReleaseTarget, update_lockfile: bool) -> None:
     )
     replace(
         ROOT / "Makefile",
-        r"^TARGET_DUCKDB_VERSION=.*$",
-        f"TARGET_DUCKDB_VERSION={target.duckdb_version}",
+        r"^DEFAULT_TARGET_DUCKDB_VERSION\s*:?=\s*.+$",
+        f"DEFAULT_TARGET_DUCKDB_VERSION := {target.duckdb_version}",
     )
     replace(
         EXTENSION_WORKFLOW,
@@ -234,7 +234,11 @@ def parse_current_files() -> dict[str, str]:
         "metadata.excluded_archs": read_metadata().excluded_archs,
         "cargo.duckdb": match_one(r'duckdb = \{ version = "=([^"]+)"', cargo, "Cargo.toml duckdb"),
         "cargo.libduckdb-sys": match_one(r'libduckdb-sys = "=([^"]+)"', cargo, "Cargo.toml libduckdb-sys"),
-        "makefile.duckdb_version": match_one(r"^TARGET_DUCKDB_VERSION=(.+)$", makefile, "Makefile"),
+        "makefile.duckdb_version": match_one(
+            r"^DEFAULT_TARGET_DUCKDB_VERSION\s*:?=\s*(.+)$",
+            makefile,
+            "Makefile",
+        ),
         "workflow.ci_tools_ref": match_one(
             r"uses: duckdb/extension-ci-tools/\.github/workflows/_extension_distribution\.yml@(.+)",
             workflow,

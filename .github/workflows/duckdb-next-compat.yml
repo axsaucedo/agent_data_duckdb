@@ -20,8 +20,39 @@ permissions:
   contents: read
 
 jobs:
+  metadata-preflight:
+    name: Resolve DuckDB next metadata
+    runs-on: ubuntu-latest
+    outputs:
+      duckdb_metadata_version: ${{ steps.metadata.outputs.duckdb_metadata_version }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install DuckDB pre-release
+        run: python -m pip install --pre duckdb
+
+      - name: Resolve metadata version
+        id: metadata
+        run: |
+          duckdb_version="${{ inputs.duckdb_version || 'main' }}"
+          metadata_version="$(python scripts/duckdb_metadata_version.py --duckdb-git-version "$duckdb_version")"
+          pragma_version="$(python -c 'import duckdb; print(duckdb.connect().execute("PRAGMA version").fetchone())')"
+          echo "duckdb_metadata_version=$metadata_version" >> "$GITHUB_OUTPUT"
+          {
+            echo "## DuckDB next metadata preflight"
+            echo ""
+            echo "- duckdb_version input: \`$duckdb_version\`"
+            echo "- metadata version: \`$metadata_version\`"
+            echo "- PRAGMA version: \`$pragma_version\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
   duckdb-next-build:
     name: Build against DuckDB next
+    needs: metadata-preflight
     uses: duckdb/extension-ci-tools/.github/workflows/_extension_distribution.yml@main
     with:
       duckdb_version: ${{ inputs.duckdb_version || 'main' }}
