@@ -60,3 +60,5 @@ jobs:
       extension_name: agent_data
       extra_toolchains: rust
       exclude_archs: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"
+      test_config: >-
+        {"test_env_variables":{"TARGET_DUCKDB_VERSION":"${{ needs.metadata-preflight.outputs.duckdb_metadata_version }}"}}
