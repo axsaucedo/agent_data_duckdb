@@ -100,6 +100,9 @@ configure/
 
 # AI
 .claude
+# but keep the Claude Desktop test fixtures, whose realistic on-disk layout
+# nests transcripts under .claude/projects/
+!test/data_claude_desktop/**
 CLAUDE.md
 AGENTS.md
 copilot_raw

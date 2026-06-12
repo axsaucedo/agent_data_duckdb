@@ -43,11 +43,11 @@ pub struct Conversations;
 // ─── Claude loading helpers ───
 
 impl Conversations {
-    fn claude_base_row(base: &BaseFields, project_dir: &str, file_name: &str, is_agent: bool,
+    fn claude_base_row(source: &str, base: &BaseFields, project_dir: &str, file_name: &str, is_agent: bool,
                        file_session_id: &str, line_number: i64, message_type: &str) -> ConversationRow {
         let fallback = utils::decode_project_path(project_dir);
         ConversationRow {
-            source: "claude".to_string(),
+            source: source.to_string(),
             session_id: base.session_id.clone().unwrap_or_else(|| file_session_id.to_string()),
             project_path: base.cwd.clone().unwrap_or(fallback),
             project_dir: project_dir.to_string(),
@@ -66,10 +66,10 @@ impl Conversations {
         }
     }
 
-    fn claude_simple_row(project_dir: &str, file_name: &str, is_agent: bool,
+    fn claude_simple_row(source: &str, project_dir: &str, file_name: &str, is_agent: bool,
                          file_session_id: &str, line_number: i64, message_type: &str) -> ConversationRow {
         ConversationRow {
-            source: "claude".to_string(),
+            source: source.to_string(),
             session_id: file_session_id.to_string(),
             project_path: utils::decode_project_path(project_dir),
             project_dir: project_dir.to_string(),
@@ -81,21 +81,21 @@ impl Conversations {
         }
     }
 
-    fn claude_message_to_row(msg: ConversationMessage, project_dir: &str, file_name: &str,
+    fn claude_message_to_row(source: &str, msg: ConversationMessage, project_dir: &str, file_name: &str,
                              is_agent: bool, file_session_id: &str, line_number: i64) -> ConversationRow {
         match msg {
             ConversationMessage::User(u) => {
                 let content = u.message.as_ref()
                     .and_then(|m| m.content.as_ref())
                     .map(utils::extract_text_content);
-                let mut row = Self::claude_base_row(&u.base, project_dir, file_name, is_agent, file_session_id, line_number, "user");
+                let mut row = Self::claude_base_row(source, &u.base, project_dir, file_name, is_agent, file_session_id, line_number, "user");
                 row.message_role = Some("user".to_string());
                 row.message_content = content;
                 row
             }
             ConversationMessage::Assistant(a) => {
                 let msg_content = a.message.as_ref();
-                let mut row = Self::claude_base_row(&a.base, project_dir, file_name, is_agent, file_session_id, line_number, "assistant");
+                let mut row = Self::claude_base_row(source, &a.base, project_dir, file_name, is_agent, file_session_id, line_number, "assistant");
                 row.message_role = Some("assistant".to_string());
 
                 row.message_content = msg_content
@@ -126,20 +126,20 @@ impl Conversations {
                 row
             }
             ConversationMessage::System(s) => {
-                let mut row = Self::claude_base_row(&s.base, project_dir, file_name, is_agent, file_session_id, line_number, "system");
+                let mut row = Self::claude_base_row(source, &s.base, project_dir, file_name, is_agent, file_session_id, line_number, "system");
                 row.message_content = s.content.as_ref().map(utils::extract_text_content);
                 row
             }
             ConversationMessage::Summary(s) => {
-                let mut row = Self::claude_simple_row(project_dir, file_name, is_agent, file_session_id, line_number, "summary");
+                let mut row = Self::claude_simple_row(source, project_dir, file_name, is_agent, file_session_id, line_number, "summary");
                 row.message_content = s.summary;
                 row
             }
             ConversationMessage::FileHistorySnapshot { .. } => {
-                Self::claude_simple_row(project_dir, file_name, is_agent, file_session_id, line_number, "file-history-snapshot")
+                Self::claude_simple_row(source, project_dir, file_name, is_agent, file_session_id, line_number, "file-history-snapshot")
             }
             ConversationMessage::QueueOperation(q) => {
-                let mut row = Self::claude_simple_row(project_dir, file_name, is_agent, file_session_id, line_number, "queue-operation");
+                let mut row = Self::claude_simple_row(source, project_dir, file_name, is_agent, file_session_id, line_number, "queue-operation");
                 if let Some(sid) = q.session_id { row.session_id = sid; }
                 row.timestamp = q.timestamp;
                 row.message_content = q.content;
@@ -150,9 +150,26 @@ impl Conversations {
 
     fn load_claude_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
         let files = utils::discover_conversation_files(base_path);
+        Self::load_claude_jsonl_rows("claude", &files)
+    }
+
+    /// Claude Desktop ("Cowork") stores transcripts using the same camelCase
+    /// schema as Claude Code, so this delegates to the shared line-parser; only
+    /// the discovered file set and the `source` label differ.
+    fn load_claude_desktop_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let files = utils::discover_claude_desktop_files(base_path);
+        Self::load_claude_jsonl_rows("claude-desktop", &files)
+    }
+
+    /// Parse a set of discovered Claude-schema JSONL transcript files into rows.
+    /// Shared by both `Provider::Claude` and `Provider::ClaudeDesktop`.
+    fn load_claude_jsonl_rows(
+        source: &str,
+        files: &[(String, bool, std::path::PathBuf)],
+    ) -> Vec<ConversationRow> {
         let mut rows = Vec::new();
 
-        for (project_dir, is_agent, file_path) in &files {
+        for (project_dir, is_agent, file_path) in files {
             let file_name = file_path.file_name()
                 .map(|f| f.to_string_lossy().to_string())
                 .unwrap_or_default();
@@ -175,9 +192,9 @@ impl Conversations {
                 };
 
                 let row = match serde_json::from_str::<ConversationMessage>(&line) {
-                    Ok(msg) => Self::claude_message_to_row(msg, project_dir, &file_name, *is_agent, &file_session_id, file_line),
+                    Ok(msg) => Self::claude_message_to_row(source, msg, project_dir, &file_name, *is_agent, &file_session_id, file_line),
                     Err(e) => {
-                        let mut row = Self::claude_simple_row(project_dir, &file_name, *is_agent, &file_session_id, file_line, "_parse_error");
+                        let mut row = Self::claude_simple_row(source, project_dir, &file_name, *is_agent, &file_session_id, file_line, "_parse_error");
                         row.message_content = Some(format!("Parse error: {}", e));
                         row
                     }
@@ -432,6 +449,7 @@ impl TableFunc for Conversations {
         let base_path = utils::resolve_data_path(path);
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
+            Provider::ClaudeDesktop => Self::load_claude_desktop_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
             Provider::Unknown => Vec::new(),
         }

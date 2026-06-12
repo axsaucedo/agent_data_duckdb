@@ -2,7 +2,7 @@
 
 A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`) and [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`).
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`) and [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`).
 
 > OpenAI Codex and Gemini CLI Coming Soon™.
 
@@ -110,15 +110,16 @@ FROM read_conversations(path='~/.copilot');
 ### Available Functions
 
 All functions accept two optional parameters:
-- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`projects/` → Claude, `session-state/` → Copilot).
-- **`source`** — explicit provider override: `'claude'` or `'copilot'`. Use when auto-detection fails or for non-standard directory layouts.
+- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot).
+- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, or `'copilot'`. Use when auto-detection fails or for non-standard directory layouts.
 
-Every table includes a **`source`** column (`'claude'` or `'copilot'`) as the first column.
+Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, or `'copilot'`) as the first column.
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
 Reads conversation/event data.
 - **Claude:** JSONL files from `projects/<project>/<session>.jsonl` (including nested sub-agent transcripts at `projects/<project>/<session>/subagents/agent-*.jsonl`)
+- **Claude Desktop:** JSONL files from `local-agent-mode-sessions/**/.claude/projects/<project>/<session>.jsonl` (same schema as Claude Code)
 - **Copilot:** JSONL events from `session-state/<uuid>/events.jsonl`
 
 | Column | Type | Description |
@@ -232,6 +233,7 @@ Reads daily activity stats. Currently Claude only — returns empty for Copilot.
 ## Provider Detection
 
 The extension auto-detects the data source by examining the directory structure:
+- **Claude Desktop:** contains `local-agent-mode-sessions/` directory
 - **Claude:** contains `projects/` directory
 - **Copilot:** contains `session-state/` directory
 - **Unknown:** returns empty results (or use `source` parameter to force)
@@ -322,7 +324,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-207 pinned assertions across 14 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
+231 pinned assertions across 15 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
 
 ## Building from Source
 

@@ -127,6 +127,56 @@ fn discover_subagent_files(project_dir: &Path) -> Vec<PathBuf> {
     results
 }
 
+/// Discover all Claude Desktop ("Cowork") conversation JSONL files.
+/// Desktop stores each session's transcript using the same camelCase schema as
+/// Claude Code, nested under
+/// `local-agent-mode-sessions/**/.claude/projects/<enc>/<session-id>.jsonl`
+/// (plus subagent transcripts one level deeper). The set of `projects/`
+/// directories is discovered by walking the tree, then each is processed by the
+/// shared `discover_project_jsonl_files` walk so the subagent fix applies here too.
+/// Returns (project_dir_encoded, is_agent, file_path) tuples sorted deterministically.
+pub fn discover_claude_desktop_files(base_path: &Path) -> Vec<(String, bool, PathBuf)> {
+    let root = base_path.join("local-agent-mode-sessions");
+    let mut projects_dirs = Vec::new();
+    collect_projects_dirs(&root, &mut projects_dirs);
+    projects_dirs.sort();
+
+    let mut results = Vec::new();
+    for projects_dir in projects_dirs {
+        results.extend(discover_project_jsonl_files(&projects_dir));
+    }
+    results
+}
+
+/// Recursively collect every `.claude/projects` directory beneath `dir`.
+fn collect_projects_dirs(dir: &Path, out: &mut Vec<PathBuf>) {
+    if !dir.is_dir() {
+        return;
+    }
+
+    // A `.claude/projects` directory here is a transcript container.
+    let candidate = dir.join(".claude").join("projects");
+    if candidate.is_dir() {
+        out.push(candidate);
+    }
+
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        // Avoid descending back into the `.claude` dir we already handled above.
+        if entry.file_name() == ".claude" {
+            continue;
+        }
+        collect_projects_dirs(&entry.path(), out);
+    }
+}
+
 /// Decode project path: `-Users-username-project` → `/Users/username/project`
 pub fn decode_project_path(encoded: &str) -> String {
     if encoded.starts_with('-') {
