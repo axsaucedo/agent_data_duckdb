@@ -32,13 +32,21 @@ fn expand_tilde(path: &str) -> PathBuf {
 /// project_dir_encoded is the raw folder name (e.g., "-Users-testuser-project-alpha").
 pub fn discover_conversation_files(base_path: &Path) -> Vec<(String, bool, PathBuf)> {
     let projects_dir = base_path.join("projects");
+    discover_project_jsonl_files(&projects_dir)
+}
+
+/// Discover all conversation JSONL files under a `projects/` directory.
+/// Walks both the main transcripts directly inside `projects/<enc>/` and the
+/// subagent transcripts nested at `projects/<enc>/<session-id>/subagents/agent-*.jsonl`.
+/// Returns (project_dir_encoded, is_agent, file_path) tuples sorted deterministically.
+fn discover_project_jsonl_files(projects_dir: &Path) -> Vec<(String, bool, PathBuf)> {
     let mut results = Vec::new();
 
     if !projects_dir.is_dir() {
         return results;
     }
 
-    let mut project_dirs: Vec<_> = std::fs::read_dir(&projects_dir)
+    let mut project_dirs: Vec<_> = std::fs::read_dir(projects_dir)
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
@@ -49,6 +57,8 @@ pub fn discover_conversation_files(base_path: &Path) -> Vec<(String, bool, PathB
     for project_entry in project_dirs {
         let project_encoded = project_entry.file_name().to_string_lossy().to_string();
 
+        // Main transcripts directly inside projects/<enc>/. A leading "agent-"
+        // filename marks an agent transcript.
         let mut jsonl_files: Vec<_> = std::fs::read_dir(project_entry.path())
             .into_iter()
             .flatten()
@@ -65,6 +75,52 @@ pub fn discover_conversation_files(base_path: &Path) -> Vec<(String, bool, PathB
             let fname = file_entry.file_name().to_string_lossy().to_string();
             let is_agent = fname.starts_with("agent-");
             results.push((project_encoded.clone(), is_agent, file_entry.path()));
+        }
+
+        // Subagent transcripts nested at projects/<enc>/<session-id>/subagents/agent-*.jsonl.
+        // These were previously skipped, so is_agent was never set for them.
+        for subagent_file in discover_subagent_files(&project_entry.path()) {
+            results.push((project_encoded.clone(), true, subagent_file));
+        }
+    }
+
+    results
+}
+
+/// Discover subagent transcripts nested under a project directory.
+/// Layout: `<project_dir>/<session-id>/subagents/agent-*.jsonl`.
+/// Returns file paths sorted deterministically by session-id then file name.
+fn discover_subagent_files(project_dir: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+
+    let mut session_dirs: Vec<_> = std::fs::read_dir(project_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    session_dirs.sort_by_key(|e| e.file_name());
+
+    for session_entry in session_dirs {
+        let subagents_dir = session_entry.path().join("subagents");
+        if !subagents_dir.is_dir() {
+            continue;
+        }
+
+        let mut jsonl_files: Vec<_> = std::fs::read_dir(&subagents_dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map_or(false, |ext| ext == "jsonl")
+            })
+            .collect();
+        jsonl_files.sort_by_key(|e| e.file_name());
+
+        for file_entry in jsonl_files {
+            results.push(file_entry.path());
         }
     }
 

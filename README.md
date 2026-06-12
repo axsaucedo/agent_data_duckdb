@@ -118,7 +118,7 @@ Every table includes a **`source`** column (`'claude'` or `'copilot'`) as the fi
 ### `read_conversations([path (opt)], [source (opt)])`
 
 Reads conversation/event data.
-- **Claude:** JSONL files from `projects/<project>/<session>.jsonl`
+- **Claude:** JSONL files from `projects/<project>/<session>.jsonl` (including nested sub-agent transcripts at `projects/<project>/<session>/subagents/agent-*.jsonl`)
 - **Copilot:** JSONL events from `session-state/<uuid>/events.jsonl`
 
 | Column | Type | Description |
@@ -322,7 +322,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-199 pinned assertions across 13 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
+207 pinned assertions across 14 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
 
 ## Building from Source
 
