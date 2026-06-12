@@ -194,6 +194,39 @@ pub fn extract_session_id_from_filename(filename: &str) -> String {
     stem.to_string()
 }
 
+/// Derive the fallback session id for a transcript file (used when a JSONL row
+/// carries no `sessionId` of its own — summary rows, parse errors, future
+/// variants without base fields).
+///
+/// Main transcripts use the file stem. Nested subagent transcripts live at
+/// `projects/<enc>/<parent-session-id>/subagents/agent-*.jsonl`, where the file
+/// stem is `agent-*` — NOT a session id — so the parent session directory name
+/// is used instead. This keeps `session_id` a valid join key across
+/// conversations/history/todos and never invents an `agent-*` session.
+pub fn fallback_session_id(file_path: &Path) -> String {
+    let file_name = file_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let in_subagents = file_path
+        .parent()
+        .and_then(|d| d.file_name())
+        .map_or(false, |n| n == "subagents");
+
+    if in_subagents {
+        if let Some(parent_session) = file_path
+            .parent()
+            .and_then(|d| d.parent())
+            .and_then(|d| d.file_name())
+        {
+            return parent_session.to_string_lossy().to_string();
+        }
+    }
+
+    extract_session_id_from_filename(&file_name)
+}
+
 /// Discover plan markdown files under plans/ directory.
 pub fn discover_plan_files(base_path: &Path) -> Vec<PathBuf> {
     let plans_dir = base_path.join("plans");

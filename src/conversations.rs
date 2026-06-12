@@ -173,7 +173,7 @@ impl Conversations {
             let file_name = file_path.file_name()
                 .map(|f| f.to_string_lossy().to_string())
                 .unwrap_or_default();
-            let file_session_id = utils::extract_session_id_from_filename(&file_name);
+            let file_session_id = utils::fallback_session_id(file_path);
 
             let file = match std::fs::File::open(file_path) {
                 Ok(f) => f,
