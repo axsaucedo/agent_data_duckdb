@@ -1,0 +1,99 @@
+# name: test/sql/claude_subagents.test
+# description: regression test for nested subagent transcript discovery (projects/<enc>/<session>/subagents/agent-*.jsonl)
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts
+# ============================================================
+
+# Total rows: 2 main + 3 nested subagent (2 messages + 1 summary)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_subagents');
+----
+5
+
+# Two files discovered: the main transcript and the nested subagent transcript
+query I
+SELECT COUNT(DISTINCT file_name) FROM read_conversations(path='test/data_claude_subagents');
+----
+2
+
+# Both files share the same parent session id — including rows that carry no
+# sessionId payload of their own (the subagent file's summary row). Before the
+# path-derived fallback, that row invented a fake 'agent-omega01' session.
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_claude_subagents');
+----
+1
+
+# ============================================================
+# Subagent detection (the regression)
+# ============================================================
+
+# Nested subagent transcripts are discovered and flagged is_agent = true.
+# Before the fix, discovery never recursed into <session>/subagents/, so these
+# rows were missing entirely.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_subagents') WHERE is_agent = true;
+----
+3
+
+# The agent rows come from the nested subagents/ file
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_subagents')
+WHERE is_agent = true AND file_name = 'agent-omega01.jsonl';
+----
+3
+
+# ============================================================
+# Fallback session id for payloads without sessionId (the join-key regression)
+# ============================================================
+
+# The summary row in the subagent file carries no sessionId in its JSON payload.
+# Its session_id must fall back to the parent session directory name, not the
+# agent-* file stem.
+query I
+SELECT session_id FROM read_conversations(path='test/data_claude_subagents')
+WHERE message_type = 'summary' AND file_name = 'agent-omega01.jsonl';
+----
+d1d1d1d1-1111-4111-8111-111111111111
+
+# No row may ever invent an 'agent-*' session id
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_subagents')
+WHERE starts_with(session_id, 'agent-');
+----
+0
+
+# Main transcript rows are not flagged as agent rows
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_subagents') WHERE is_agent = false;
+----
+2
+
+# ============================================================
+# Source column
+# ============================================================
+
+# Subagent transcripts still report source = 'claude'
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_subagents') WHERE source != 'claude';
+----
+0
+
+# ============================================================
+# Line number per-file invariant
+# ============================================================
+
+# Every file starts at line 1
+query I
+SELECT COUNT(*) FROM (
+    SELECT file_name, MIN(line_number) AS min_ln
+    FROM read_conversations(path='test/data_claude_subagents')
+    GROUP BY file_name
+    HAVING min_ln != 1
+);
+----
+0

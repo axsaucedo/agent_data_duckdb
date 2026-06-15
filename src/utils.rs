@@ -32,13 +32,21 @@ fn expand_tilde(path: &str) -> PathBuf {
 /// project_dir_encoded is the raw folder name (e.g., "-Users-testuser-project-alpha").
 pub fn discover_conversation_files(base_path: &Path) -> Vec<(String, bool, PathBuf)> {
     let projects_dir = base_path.join("projects");
+    discover_project_jsonl_files(&projects_dir)
+}
+
+/// Discover all conversation JSONL files under a `projects/` directory.
+/// Walks both the main transcripts directly inside `projects/<enc>/` and the
+/// subagent transcripts nested at `projects/<enc>/<session-id>/subagents/agent-*.jsonl`.
+/// Returns (project_dir_encoded, is_agent, file_path) tuples sorted deterministically.
+fn discover_project_jsonl_files(projects_dir: &Path) -> Vec<(String, bool, PathBuf)> {
     let mut results = Vec::new();
 
     if !projects_dir.is_dir() {
         return results;
     }
 
-    let mut project_dirs: Vec<_> = std::fs::read_dir(&projects_dir)
+    let mut project_dirs: Vec<_> = std::fs::read_dir(projects_dir)
         .into_iter()
         .flatten()
         .filter_map(|e| e.ok())
@@ -49,6 +57,8 @@ pub fn discover_conversation_files(base_path: &Path) -> Vec<(String, bool, PathB
     for project_entry in project_dirs {
         let project_encoded = project_entry.file_name().to_string_lossy().to_string();
 
+        // Main transcripts directly inside projects/<enc>/. A leading "agent-"
+        // filename marks an agent transcript.
         let mut jsonl_files: Vec<_> = std::fs::read_dir(project_entry.path())
             .into_iter()
             .flatten()
@@ -66,9 +76,105 @@ pub fn discover_conversation_files(base_path: &Path) -> Vec<(String, bool, PathB
             let is_agent = fname.starts_with("agent-");
             results.push((project_encoded.clone(), is_agent, file_entry.path()));
         }
+
+        // Subagent transcripts nested at projects/<enc>/<session-id>/subagents/agent-*.jsonl.
+        // These were previously skipped, so is_agent was never set for them.
+        for subagent_file in discover_subagent_files(&project_entry.path()) {
+            results.push((project_encoded.clone(), true, subagent_file));
+        }
     }
 
     results
+}
+
+/// Discover subagent transcripts nested under a project directory.
+/// Layout: `<project_dir>/<session-id>/subagents/agent-*.jsonl`.
+/// Returns file paths sorted deterministically by session-id then file name.
+fn discover_subagent_files(project_dir: &Path) -> Vec<PathBuf> {
+    let mut results = Vec::new();
+
+    let mut session_dirs: Vec<_> = std::fs::read_dir(project_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    session_dirs.sort_by_key(|e| e.file_name());
+
+    for session_entry in session_dirs {
+        let subagents_dir = session_entry.path().join("subagents");
+        if !subagents_dir.is_dir() {
+            continue;
+        }
+
+        let mut jsonl_files: Vec<_> = std::fs::read_dir(&subagents_dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                e.path()
+                    .extension()
+                    .map_or(false, |ext| ext == "jsonl")
+            })
+            .collect();
+        jsonl_files.sort_by_key(|e| e.file_name());
+
+        for file_entry in jsonl_files {
+            results.push(file_entry.path());
+        }
+    }
+
+    results
+}
+
+/// Discover all Claude Desktop ("Cowork") conversation JSONL files.
+/// Desktop stores each session's transcript using the same camelCase schema as
+/// Claude Code, nested under
+/// `local-agent-mode-sessions/**/.claude/projects/<enc>/<session-id>.jsonl`
+/// (plus subagent transcripts one level deeper). The set of `projects/`
+/// directories is discovered by walking the tree, then each is processed by the
+/// shared `discover_project_jsonl_files` walk so the subagent fix applies here too.
+/// Returns (project_dir_encoded, is_agent, file_path) tuples sorted deterministically.
+pub fn discover_claude_desktop_files(base_path: &Path) -> Vec<(String, bool, PathBuf)> {
+    let root = base_path.join("local-agent-mode-sessions");
+    let mut projects_dirs = Vec::new();
+    collect_projects_dirs(&root, &mut projects_dirs);
+    projects_dirs.sort();
+
+    let mut results = Vec::new();
+    for projects_dir in projects_dirs {
+        results.extend(discover_project_jsonl_files(&projects_dir));
+    }
+    results
+}
+
+/// Recursively collect every `.claude/projects` directory beneath `dir`.
+fn collect_projects_dirs(dir: &Path, out: &mut Vec<PathBuf>) {
+    if !dir.is_dir() {
+        return;
+    }
+
+    // A `.claude/projects` directory here is a transcript container.
+    let candidate = dir.join(".claude").join("projects");
+    if candidate.is_dir() {
+        out.push(candidate);
+    }
+
+    let mut entries: Vec<_> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    entries.sort_by_key(|e| e.file_name());
+
+    for entry in entries {
+        // Avoid descending back into the `.claude` dir we already handled above.
+        if entry.file_name() == ".claude" {
+            continue;
+        }
+        collect_projects_dirs(&entry.path(), out);
+    }
 }
 
 /// Decode project path: `-Users-username-project` → `/Users/username/project`
@@ -86,6 +192,39 @@ pub fn decode_project_path(encoded: &str) -> String {
 pub fn extract_session_id_from_filename(filename: &str) -> String {
     let stem = filename.strip_suffix(".jsonl").unwrap_or(filename);
     stem.to_string()
+}
+
+/// Derive the fallback session id for a transcript file (used when a JSONL row
+/// carries no `sessionId` of its own — summary rows, parse errors, future
+/// variants without base fields).
+///
+/// Main transcripts use the file stem. Nested subagent transcripts live at
+/// `projects/<enc>/<parent-session-id>/subagents/agent-*.jsonl`, where the file
+/// stem is `agent-*` — NOT a session id — so the parent session directory name
+/// is used instead. This keeps `session_id` a valid join key across
+/// conversations/history/todos and never invents an `agent-*` session.
+pub fn fallback_session_id(file_path: &Path) -> String {
+    let file_name = file_path
+        .file_name()
+        .map(|f| f.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    let in_subagents = file_path
+        .parent()
+        .and_then(|d| d.file_name())
+        .map_or(false, |n| n == "subagents");
+
+    if in_subagents {
+        if let Some(parent_session) = file_path
+            .parent()
+            .and_then(|d| d.parent())
+            .and_then(|d| d.file_name())
+        {
+            return parent_session.to_string_lossy().to_string();
+        }
+    }
+
+    extract_session_id_from_filename(&file_name)
 }
 
 /// Discover plan markdown files under plans/ directory.

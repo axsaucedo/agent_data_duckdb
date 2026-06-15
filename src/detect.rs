@@ -4,14 +4,19 @@ use std::path::Path;
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Provider {
     Claude,
+    ClaudeDesktop,
     Copilot,
     Unknown,
 }
 
 /// Auto-detect provider from directory structure.
+/// - `local-agent-mode-sessions/` directory → Claude Desktop
 /// - `projects/` directory → Claude
 /// - `session-state/` directory → Copilot
 pub fn detect_provider(path: &Path) -> Provider {
+    if path.join("local-agent-mode-sessions").is_dir() {
+        return Provider::ClaudeDesktop;
+    }
     if path.join("projects").is_dir() {
         return Provider::Claude;
     }
@@ -25,6 +30,7 @@ pub fn detect_provider(path: &Path) -> Provider {
 pub fn parse_source(source: &str) -> Provider {
     match source.to_lowercase().as_str() {
         "claude" => Provider::Claude,
+        "claude-desktop" => Provider::ClaudeDesktop,
         "copilot" => Provider::Copilot,
         _ => Provider::Unknown,
     }

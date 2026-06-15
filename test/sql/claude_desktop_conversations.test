@@ -1,0 +1,192 @@
+# name: test/sql/claude_desktop_conversations.test
+# description: comprehensive tests for Claude Desktop ("Cowork") conversation loading
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts
+# ============================================================
+
+# Total rows: 4 main + 2 nested subagent + 2 ditto dispatch
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop');
+----
+8
+
+# Three transcript files: main, nested subagent, and ditto dispatch chat
+query I
+SELECT COUNT(DISTINCT file_name) FROM read_conversations(path='test/data_claude_desktop');
+----
+3
+
+# Two distinct sessions (the main/subagent session and the ditto dispatch session)
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_claude_desktop');
+----
+2
+
+# ============================================================
+# Source column
+# ============================================================
+
+# All rows are tagged source = 'claude-desktop'
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE source != 'claude-desktop';
+----
+0
+
+# Explicit source='claude-desktop' returns the same rows as auto-detection
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop', source='claude-desktop');
+----
+8
+
+# ============================================================
+# Message type breakdown
+# ============================================================
+
+# Two message types in the fixture: user and assistant
+query I
+SELECT COUNT(DISTINCT message_type) FROM read_conversations(path='test/data_claude_desktop');
+----
+2
+
+# User messages
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE message_type = 'user';
+----
+4
+
+# Assistant messages
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE message_type = 'assistant';
+----
+4
+
+# No parse errors in fixture data
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE message_type = '_parse_error';
+----
+0
+
+# ============================================================
+# Subagent detection (nested subagents/ discovery)
+# ============================================================
+
+# The nested subagent transcript is discovered and flagged is_agent = true
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE is_agent = true;
+----
+2
+
+# Main and ditto dispatch transcripts are not flagged as agent rows
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE is_agent = false;
+----
+6
+
+# ============================================================
+# Column NOT NULL invariants (mirrors Claude)
+# ============================================================
+
+# session_id never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE session_id IS NULL;
+----
+0
+
+# file_name never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE file_name IS NULL;
+----
+0
+
+# message_type never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE message_type IS NULL;
+----
+0
+
+# line_number never NULL and always >= 1
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop') WHERE line_number IS NULL OR line_number < 1;
+----
+0
+
+# ============================================================
+# UUID and timestamp validation (mirrors Claude)
+# ============================================================
+
+# All user/assistant messages have valid UUIDs
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop')
+WHERE message_type IN ('user', 'assistant')
+AND uuid IS NOT NULL
+AND uuid NOT SIMILAR TO '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+----
+0
+
+# All timestamps follow ISO 8601
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop')
+WHERE timestamp IS NOT NULL
+AND timestamp NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*';
+----
+0
+
+# ============================================================
+# Model and tool extraction (reuses the Claude parser)
+# ============================================================
+
+# All assistant messages carry a model
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude_desktop')
+WHERE message_type = 'assistant' AND model IS NULL;
+----
+0
+
+# Tool calls are extracted from assistant content
+query I
+SELECT COUNT(*) > 0 FROM read_conversations(path='test/data_claude_desktop') WHERE tool_name IS NOT NULL;
+----
+true
+
+# ============================================================
+# Line number per-file invariant (mirrors Claude)
+# ============================================================
+
+# Every file starts at line 1
+query I
+SELECT COUNT(*) FROM (
+    SELECT file_name, MIN(line_number) AS min_ln
+    FROM read_conversations(path='test/data_claude_desktop')
+    GROUP BY file_name
+    HAVING min_ln != 1
+);
+----
+0
+
+# ============================================================
+# Other tables return empty for Claude Desktop
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_claude_desktop');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_todos(path='test/data_claude_desktop');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_history(path='test/data_claude_desktop');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_claude_desktop');
+----
+0
