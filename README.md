@@ -101,10 +101,11 @@ When called **without arguments**, each function reads from its provider's defau
 | `read_history()` | `~/.claude` | Claude Code |
 | `read_stats()` | `~/.claude` | Claude Code |
 
-To read Copilot data, pass the path explicitly:
+To read Claude Desktop or Copilot data, pass the path explicitly:
 
 ```sql
-FROM read_conversations(path='~/.copilot');
+FROM read_conversations(path='~/Library/Application Support/Claude');  -- detected as Claude Desktop
+FROM read_conversations(path='~/.copilot');  -- detected as Copilot
 ```
 
 ### Available Functions
@@ -124,7 +125,7 @@ Reads conversation/event data.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'` or `'copilot'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, or `'copilot'` |
 | `session_id` | VARCHAR | Session UUID |
 | `project_path` | VARCHAR | Project/working directory path |
 | `project_dir` | VARCHAR | Raw encoded directory name (Claude only) |
@@ -177,7 +178,7 @@ Reads plan files.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'` or `'copilot'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, or `'copilot'` |
 | `session_id` | VARCHAR | Parent session UUID (Copilot only, NULL for Claude) |
 | `plan_name` | VARCHAR | Plan name (filename stem or workspace summary) |
 | `file_name` | VARCHAR | Full filename |
@@ -193,7 +194,7 @@ Reads todo/checklist items.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'` or `'copilot'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, or `'copilot'` |
 | `session_id` | VARCHAR | Parent session UUID |
 | `agent_id` | VARCHAR | Agent UUID (Claude only, NULL for Copilot) |
 | `file_name` | VARCHAR | Source filename |
@@ -210,7 +211,7 @@ Reads command history.
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'` or `'copilot'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, or `'copilot'` |
 | `line_number` | BIGINT | Line/entry number (1-based) |
 | `timestamp_ms` | BIGINT | Unix timestamp in ms (Claude only) |
 | `project` | VARCHAR | Project path (Claude only) |
@@ -241,6 +242,7 @@ The extension auto-detects the data source by examining the directory structure:
 ```sql
 -- Auto-detect
 FROM read_conversations(path='~/.claude');   -- detected as Claude
+FROM read_conversations(path='~/Library/Application Support/Claude');  -- detected as Claude Desktop
 FROM read_conversations(path='~/.copilot');  -- detected as Copilot
 
 -- Override detection
