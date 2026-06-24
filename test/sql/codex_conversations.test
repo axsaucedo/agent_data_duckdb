@@ -119,3 +119,74 @@ query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE message_type = '_parse_error';
 ----
 0
+
+# ============================================================
+# Column NOT NULL invariants
+# ============================================================
+
+# source never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE source IS NULL;
+----
+0
+
+# session_id never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE session_id IS NULL;
+----
+0
+
+# file_name never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE file_name IS NULL;
+----
+0
+
+# message_type never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE message_type IS NULL;
+----
+0
+
+# line_number never NULL and always >= 1
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE line_number IS NULL OR line_number < 1;
+----
+0
+
+# ============================================================
+# Timestamp validation (per-line ISO 8601, Codex strength)
+# ============================================================
+
+# All timestamps follow ISO 8601
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE timestamp IS NOT NULL
+AND timestamp NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*';
+----
+0
+
+# ============================================================
+# Other tables return empty for Codex
+# (conversation data lives only in the rollout JSONL stream)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_codex');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_todos(path='test/data_codex');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_history(path='test/data_codex');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_codex');
+----
+0
