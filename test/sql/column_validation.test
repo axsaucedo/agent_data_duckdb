@@ -311,3 +311,44 @@ SELECT COUNT(*) FROM (
 );
 ----
 16
+
+# ============================================================
+# NULL pattern validation: Grok conversations
+# ============================================================
+
+# source is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE source IS NULL;
+----
+0
+
+# session_id is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE session_id IS NULL;
+----
+0
+
+# message_type is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE message_type IS NULL;
+----
+0
+
+# line_number is BIGINT and always positive
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE typeof(line_number) != 'BIGINT' OR line_number <= 0;
+----
+0
+
+# uuid is always NULL for Grok (no per-message id in chat_history.jsonl)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE uuid IS NOT NULL;
+----
+0
+
+query II
+SELECT source, COUNT(*) FROM read_conversations(path='test/data_grok') GROUP BY source ORDER BY source;
+----
+grok	8
+
