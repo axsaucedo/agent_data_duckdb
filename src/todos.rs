@@ -129,8 +129,9 @@ impl TableFunc for Todos {
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
-            // Claude Desktop has no top-level todos/ directory; return empty.
-            Provider::ClaudeDesktop | Provider::Unknown => Vec::new(),
+            // Claude Desktop has no top-level todos/ directory; Codex todo
+            // extraction (update_plan tool calls) is deferred. Return empty.
+            Provider::ClaudeDesktop | Provider::Codex | Provider::Unknown => Vec::new(),
         }
     }
 

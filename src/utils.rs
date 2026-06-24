@@ -432,3 +432,47 @@ pub fn read_workspace_yaml(session_dir: &Path) -> Option<crate::types::copilot::
     let content = std::fs::read_to_string(&yaml_path).ok()?;
     serde_yaml::from_str(&content).ok()
 }
+
+// ─── Codex Discovery Functions ───
+
+/// Discover Codex rollout-*.jsonl transcripts under sessions/YYYY/MM/DD/.
+/// Returns (session_uuid, file_path) tuples sorted by path.
+pub fn discover_codex_rollout_files(base_path: &Path) -> Vec<(String, PathBuf)> {
+    let sessions_dir = base_path.join("sessions");
+    let mut results = Vec::new();
+    if !sessions_dir.is_dir() {
+        return results;
+    }
+    walk_codex(&sessions_dir, &mut results);
+    results.sort_by(|a, b| a.1.cmp(&b.1));
+    results
+}
+
+fn walk_codex(dir: &Path, out: &mut Vec<(String, PathBuf)>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_codex(&path, out);
+        } else {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("rollout-") && name.ends_with(".jsonl") {
+                // session uuid is the trailing UUID (5 hyphen-delimited groups)
+                // before `.jsonl`.
+                let stem = name.strip_suffix(".jsonl").unwrap_or(&name);
+                let session_uuid = stem
+                    .rsplit('-')
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("-");
+                out.push((session_uuid, path));
+            }
+        }
+    }
+}

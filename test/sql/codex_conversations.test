@@ -1,0 +1,121 @@
+# name: test/sql/codex_conversations.test
+# description: comprehensive tests for Codex (rollout JSONL) conversation loading
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts — session_meta + turn_context + token_count are NOT rows.
+# Conversation rows: 2 messages + 1 reasoning + 1 function_call + 1 output = 5
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex');
+----
+5
+
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_codex');
+----
+1
+
+# session_id derived from rollout filename / session_meta.id
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE session_id != '019ce0d1-2189-7980-bde2-9b5c5028916a';
+----
+0
+
+# ============================================================
+# Source
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE source != 'codex';
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex', source='codex');
+----
+5
+
+# ============================================================
+# Message types
+# ============================================================
+
+query II
+SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
+GROUP BY message_type ORDER BY message_type;
+----
+function_call	1
+function_call_output	1
+message	2
+reasoning	1
+
+# Roles: user/assistant messages, tool for function_*
+query II
+SELECT message_role, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
+GROUP BY message_role ORDER BY message_role;
+----
+assistant	2
+tool	2
+user	1
+
+# ============================================================
+# Per-line timestamp present on every row (Codex strength)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE timestamp IS NULL;
+----
+0
+
+# ============================================================
+# Session metadata carried forward to every row
+# ============================================================
+
+# model from turn_context
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE model != 'gpt-5.3-codex';
+----
+0
+
+# git_branch / cwd / version / repository from session_meta
+query IIII
+SELECT DISTINCT git_branch, cwd, version, repository FROM read_conversations(path='test/data_codex');
+----
+main	/Users/testuser/project	0.108.0	git@github.com:testuser/project.git
+
+# ============================================================
+# Tool fields
+# ============================================================
+
+query III
+SELECT tool_name, tool_use_id, (tool_input IS NOT NULL) AS has_input
+FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'function_call';
+----
+shell	call_abc	true
+
+# function_call_output links to the same call_id
+query I
+SELECT tool_use_id FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'function_call_output';
+----
+call_abc
+
+# ============================================================
+# uuid / slug are NULL for Codex
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE uuid IS NOT NULL OR slug IS NOT NULL;
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE message_type = '_parse_error';
+----
+0

@@ -48,8 +48,13 @@ impl TableFunc for Stats {
                     tool_call_count: day.tool_call_count.unwrap_or(0),
                 }).collect()
             }
-            // Copilot and Claude Desktop have no stats equivalent; return empty
-            Provider::ClaudeDesktop | Provider::Copilot | Provider::Unknown => Vec::new(),
+            // Only Claude ships a precomputed stats-cache.json. Copilot, Claude
+            // Desktop, and Codex stats can be derived in SQL from
+            // read_conversations() instead; return empty here.
+            Provider::ClaudeDesktop
+            | Provider::Copilot
+            | Provider::Codex
+            | Provider::Unknown => Vec::new(),
         }
     }
 

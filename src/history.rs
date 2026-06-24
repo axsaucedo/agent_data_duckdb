@@ -99,8 +99,9 @@ impl TableFunc for History {
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
-            // Claude Desktop has no history.jsonl; return empty.
-            Provider::ClaudeDesktop | Provider::Unknown => Vec::new(),
+            // Claude Desktop has no history.jsonl; Codex session_index.jsonl is a
+            // candidate history source but is deferred for v1. Return empty.
+            Provider::ClaudeDesktop | Provider::Codex | Provider::Unknown => Vec::new(),
         }
     }
 

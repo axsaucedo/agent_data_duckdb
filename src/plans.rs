@@ -71,8 +71,9 @@ impl TableFunc for Plans {
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
-            // Claude Desktop has no top-level plans/ directory; return empty.
-            Provider::ClaudeDesktop | Provider::Unknown => Vec::new(),
+            // Claude Desktop has no top-level plans/ directory; Codex plans live
+            // inline in the rollout stream (no standalone plan files). Return empty.
+            Provider::ClaudeDesktop | Provider::Codex | Provider::Unknown => Vec::new(),
         }
     }
 
