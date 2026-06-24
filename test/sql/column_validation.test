@@ -116,6 +116,41 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_copilot') WHERE message_
 0
 
 # ============================================================
+# NULL pattern validation: Codex conversations
+# ============================================================
+
+# source is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE source IS NULL;
+----
+0
+
+# session_id is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE session_id IS NULL;
+----
+0
+
+# message_type is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE message_type IS NULL;
+----
+0
+
+# line_number is BIGINT and always positive
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE typeof(line_number) != 'BIGINT' OR line_number <= 0;
+----
+0
+
+# uuid is always NULL for Codex (response_items carry no per-message id)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE uuid IS NOT NULL;
+----
+0
+
+# ============================================================
 # Plans: file_size consistency
 # ============================================================
 
@@ -166,6 +201,11 @@ query II
 SELECT source, COUNT(*) FROM read_conversations(path='test/data_copilot') GROUP BY source ORDER BY source;
 ----
 copilot	53
+
+query II
+SELECT source, COUNT(*) FROM read_conversations(path='test/data_codex') GROUP BY source ORDER BY source;
+----
+codex	5
 
 # GROUP BY message_type on Claude produces 4 groups
 query I
