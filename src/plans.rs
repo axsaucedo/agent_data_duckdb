@@ -72,7 +72,8 @@ impl TableFunc for Plans {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
             // Claude Desktop has no top-level plans/ directory; return empty.
-            Provider::ClaudeDesktop | Provider::Unknown => Vec::new(),
+            // Cursor has no standalone plan files; return empty.
+            Provider::ClaudeDesktop | Provider::Cursor | Provider::Unknown => Vec::new(),
         }
     }
 

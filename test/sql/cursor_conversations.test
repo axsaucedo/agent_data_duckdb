@@ -1,0 +1,199 @@
+# name: test/sql/cursor_conversations.test
+# description: comprehensive tests for Cursor (state.vscdb SQLite KV) conversation loading
+# group: [agent_data]
+# note: requires the extension built with the default-on `cursor` cargo feature.
+
+require agent_data
+
+# ============================================================
+# Row counts — 1 composer, 2 bubbles
+# The path may point at the .vscdb file directly, or its parent directory.
+# ============================================================
+
+# Total rows: 2 bubbles (1 user, 1 assistant)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor');
+----
+2
+
+# Pointing directly at the .vscdb file resolves the same rows
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor/state.vscdb');
+----
+2
+
+# One composer => one session
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_cursor');
+----
+1
+
+# session_id is the composerId
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor')
+WHERE session_id != 'comp-1111-0000-0000-0000-000000000001';
+----
+0
+
+# ============================================================
+# Source column
+# ============================================================
+
+# All rows are tagged source = 'cursor'
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE source != 'cursor';
+----
+0
+
+# Explicit source='cursor' returns the same rows as auto-detection
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor', source='cursor');
+----
+2
+
+# ============================================================
+# Message type / role (type 1 = user, type 2 = assistant)
+# ============================================================
+
+query II
+SELECT message_type, message_role FROM read_conversations(path='test/data_cursor')
+ORDER BY line_number;
+----
+user	user
+assistant	assistant
+
+# No bubble should fall through to the 'unknown' type for this fixture
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE message_type = 'unknown';
+----
+0
+
+# message_content comes from the bubble's plain text field
+query I
+SELECT message_content FROM read_conversations(path='test/data_cursor')
+WHERE message_type = 'user';
+----
+Please add a hello() function to hello.py.
+
+# ============================================================
+# uuid / parent_uuid: uuid = bubbleId, parent_uuid links to prior bubble
+# This asserts the fullConversationHeadersOnly ordering is honoured.
+# ============================================================
+
+query III
+SELECT line_number, uuid, parent_uuid FROM read_conversations(path='test/data_cursor')
+ORDER BY line_number;
+----
+1	bub-aaaa	NULL
+2	bub-bbbb	bub-aaaa
+
+# ============================================================
+# Column NOT NULL invariants (mirrors Claude / Claude Desktop)
+# ============================================================
+
+# session_id never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE session_id IS NULL;
+----
+0
+
+# file_name never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE file_name IS NULL;
+----
+0
+
+# message_type never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE message_type IS NULL;
+----
+0
+
+# line_number never NULL and always >= 1
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE line_number IS NULL OR line_number < 1;
+----
+0
+
+# ============================================================
+# Timestamps from createdAt (epoch ms -> ISO 8601)
+# ============================================================
+
+# Every bubble in the fixture has a createdAt, so timestamp is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE timestamp IS NULL;
+----
+0
+
+# Timestamps follow ISO 8601 (epoch_ms_to_iso output), e.g. 2024-05-29T17:46:40Z
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor')
+WHERE timestamp NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z';
+----
+0
+
+# ============================================================
+# Model from composer modelConfig.modelName (session-level, on every row)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE model != 'claude-3.7-sonnet';
+----
+0
+
+# is_agent maps from bubble.isAgentic (true on the user bubble in this fixture)
+query I
+SELECT is_agent FROM read_conversations(path='test/data_cursor') WHERE message_type = 'user';
+----
+true
+
+# ============================================================
+# Tool fields from toolFormerData (only the assistant bubble has a tool call)
+# ============================================================
+
+query III
+SELECT tool_name, tool_use_id, (tool_input IS NOT NULL) AS has_input
+FROM read_conversations(path='test/data_cursor')
+WHERE tool_name IS NOT NULL;
+----
+edit_file	tc-1	true
+
+# Exactly one row carries a tool call
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE tool_use_id IS NOT NULL;
+----
+1
+
+# ============================================================
+# git_branch / slug / version are NULL for Cursor (not persisted)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor')
+WHERE git_branch IS NOT NULL OR slug IS NOT NULL OR version IS NOT NULL;
+----
+0
+
+# ============================================================
+# Other tables return empty for Cursor (only read_conversations is implemented)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_cursor');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_todos(path='test/data_cursor');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_history(path='test/data_cursor');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_cursor');
+----
+0

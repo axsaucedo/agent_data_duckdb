@@ -1,6 +1,8 @@
 use crate::detect::{self, Provider};
 use crate::types::claude::*;
 use crate::types::copilot::*;
+#[cfg(feature = "cursor")]
+use crate::types::cursor::*;
 use crate::utils;
 use crate::vtab::{self, ColDef, TableFunc};
 use duckdb::core::DataChunkHandle;
@@ -421,6 +423,141 @@ impl Conversations {
     }
 }
 
+// ─── Cursor loading ───
+//
+// Cursor stores chat in a SQLite KV store (state.vscdb). `composerData:<id>` rows
+// are conversations; `bubbleId:<composerId>:<bubbleId>` rows are messages. Order
+// within a composer comes from its `fullConversationHeadersOnly` array. This
+// loader requires the `rusqlite` dependency, gated behind the default-on `cursor`
+// cargo feature. Parsing is defensive: missing keys/rows are tolerated and never
+// panic (every field falls back to NULL via `..Default::default()`).
+
+#[cfg(feature = "cursor")]
+impl Conversations {
+    fn load_cursor_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let db_path = if base_path.extension().map_or(false, |e| e == "vscdb") {
+            base_path.to_path_buf()
+        } else {
+            base_path.join("state.vscdb")
+        };
+
+        let conn = match rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ) {
+            Ok(c) => c,
+            Err(_) => return Vec::new(),
+        };
+
+        // 1. Load all composers (sessions) into a lookup.
+        let mut composers: std::collections::HashMap<String, CursorComposer> =
+            std::collections::HashMap::new();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
+        {
+            let iter = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)));
+            if let Ok(iter) = iter {
+                for row in iter.flatten() {
+                    if let Ok(c) = serde_json::from_str::<CursorComposer>(&row.1) {
+                        let id = row.0.trim_start_matches("composerData:").to_string();
+                        composers.insert(id, c);
+                    }
+                }
+            }
+        }
+
+        // 2. Load all bubbles into a lookup keyed by (composerId, bubbleId).
+        let mut bubbles: std::collections::HashMap<(String, String), CursorBubble> =
+            std::collections::HashMap::new();
+        if let Ok(mut stmt) =
+            conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'")
+        {
+            let iter = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)));
+            if let Ok(iter) = iter {
+                for row in iter.flatten() {
+                    // key = bubbleId:<composerId>:<bubbleId>
+                    let parts: Vec<&str> = row.0.splitn(3, ':').collect();
+                    if parts.len() == 3 {
+                        if let Ok(b) = serde_json::from_str::<CursorBubble>(&row.1) {
+                            bubbles.insert((parts[1].to_string(), parts[2].to_string()), b);
+                        }
+                    }
+                }
+            }
+        }
+
+        // 3. Walk each composer's ordered headers, emit a row per bubble.
+        let mut rows = Vec::new();
+        let mut composer_ids: Vec<&String> = composers.keys().collect();
+        composer_ids.sort();
+
+        for composer_id in composer_ids {
+            let composer = &composers[composer_id];
+            let model = composer
+                .model_config
+                .as_ref()
+                .and_then(|m| m.model_name.clone());
+            let headers = composer.headers.clone().unwrap_or_default();
+            let mut prev_bubble: Option<String> = None;
+
+            for (idx, header) in headers.iter().enumerate() {
+                let bubble_id = match &header.bubble_id {
+                    Some(b) => b.clone(),
+                    None => continue,
+                };
+                let bubble = bubbles.get(&(composer_id.clone(), bubble_id.clone()));
+
+                let (message_type, role) = match header.bubble_type {
+                    Some(1) => ("user", Some("user")),
+                    Some(2) => ("assistant", Some("assistant")),
+                    _ => ("unknown", None),
+                };
+
+                let tool = bubble.and_then(|b| b.tool_former_data.as_ref());
+                let timestamp = bubble
+                    .and_then(|b| {
+                        b.created_at
+                            .or_else(|| b.timing_info.as_ref().and_then(|t| t.client_start_time))
+                    })
+                    .map(utils::epoch_ms_to_iso);
+
+                rows.push(ConversationRow {
+                    source: "cursor".to_string(),
+                    session_id: composer_id.clone(),
+                    file_name: "state.vscdb".to_string(),
+                    line_number: idx as i64 + 1,
+                    message_type: message_type.to_string(),
+                    message_role: role.map(String::from),
+                    uuid: Some(bubble_id.clone()),
+                    parent_uuid: prev_bubble.clone(),
+                    timestamp,
+                    is_agent: bubble.and_then(|b| b.is_agentic).unwrap_or(false),
+                    message_content: bubble.and_then(|b| b.text.clone()),
+                    model: model.clone(),
+                    tool_name: tool.and_then(|t| t.name.clone().or_else(|| t.tool.clone())),
+                    tool_use_id: tool.and_then(|t| t.tool_call_id.clone()),
+                    tool_input: tool.and_then(|t| {
+                        t.raw_args
+                            .as_ref()
+                            .or(t.params.as_ref())
+                            .map(|v| v.to_string())
+                    }),
+                    ..Default::default()
+                });
+                prev_bubble = Some(bubble_id);
+            }
+        }
+        rows
+    }
+}
+
+#[cfg(not(feature = "cursor"))]
+impl Conversations {
+    fn load_cursor_rows(_base_path: &std::path::Path) -> Vec<ConversationRow> {
+        Vec::new()
+    }
+}
+
 // ─── TableFunc implementation ───
 
 impl TableFunc for Conversations {
@@ -451,6 +588,7 @@ impl TableFunc for Conversations {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::ClaudeDesktop => Self::load_claude_desktop_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
+            Provider::Cursor => Self::load_cursor_rows(&base_path),
             Provider::Unknown => Vec::new(),
         }
     }

@@ -100,7 +100,8 @@ impl TableFunc for History {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
             // Claude Desktop has no history.jsonl; return empty.
-            Provider::ClaudeDesktop | Provider::Unknown => Vec::new(),
+            // Cursor has no command-history equivalent; return empty.
+            Provider::ClaudeDesktop | Provider::Cursor | Provider::Unknown => Vec::new(),
         }
     }
 
