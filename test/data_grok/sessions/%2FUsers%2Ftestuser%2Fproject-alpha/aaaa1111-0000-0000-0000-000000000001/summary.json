@@ -1,0 +1,11 @@
+{
+  "created_at": "2026-05-18T09:29:16.797043Z",
+  "updated_at": "2026-05-18T17:35:38.403978Z",
+  "current_model_id": "grok-build",
+  "chat_format_version": 1,
+  "head_branch": "feature/hello",
+  "git_root_dir": "/Users/testuser/project-alpha",
+  "git_remotes": ["git@github.com:testuser/project-alpha.git"],
+  "generated_title": "Add hello world function",
+  "num_messages": 6
+}

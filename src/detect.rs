@@ -9,6 +9,7 @@ pub enum Provider {
     Cursor,
     Codex,
     Gemini,
+    Grok,
     Unknown,
 }
 
@@ -19,6 +20,7 @@ pub enum Provider {
 /// - `state.vscdb` file (passed directly or found in the directory) → Cursor
 /// - `sessions/` with `YYYY/` date partitions (rollout files) → Codex
 /// - `tmp/` directory + `installation_id` file → Gemini CLI (`~/.gemini`)
+/// - `sessions/` directory containing url-encoded cwd dirs (`%...`) → Grok
 pub fn detect_provider(path: &Path) -> Provider {
     if path.join("local-agent-mode-sessions").is_dir() {
         return Provider::ClaudeDesktop;
@@ -50,6 +52,15 @@ pub fn detect_provider(path: &Path) -> Provider {
         if has_year_dir {
             return Provider::Codex;
         }
+        // Grok encodes the cwd as the session subdir name (starts with '%').
+        let looks_grok = std::fs::read_dir(&sessions)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| e.file_name().to_string_lossy().starts_with('%'));
+        if looks_grok {
+            return Provider::Grok;
+        }
     }
     // Gemini CLI keeps chats under `tmp/<project-hash>/chats/`. The `tmp/` name
     // alone is too generic, so require the Gemini-specific `installation_id`
@@ -69,6 +80,7 @@ pub fn parse_source(source: &str) -> Provider {
         "cursor" => Provider::Cursor,
         "codex" => Provider::Codex,
         "gemini" => Provider::Gemini,
+        "grok" => Provider::Grok,
         _ => Provider::Unknown,
     }
 }

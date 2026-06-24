@@ -2,7 +2,7 @@
 
 A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [Cursor](https://cursor.com) (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `source='cursor'`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`, `source='codex'`) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`).
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [Cursor](https://cursor.com) (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `source='cursor'`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`, `source='codex'`), [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`) and [xAI Grok CLI](https://x.ai) (`~/.grok`, `source='grok'`).
 
 Written in 🦀 Rust.
 
@@ -120,14 +120,16 @@ FROM read_conversations(path='~/.gemini');  -- detected as Gemini CLI
 ### Available Functions
 
 All functions accept two optional parameters:
-- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, a `state.vscdb` file → Cursor, `sessions/<YYYY>/` → Codex, `tmp/` + `installation_id` → Gemini CLI).
-- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, or `'gemini'`. Use when auto-detection fails or for non-standard directory layouts.
+- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, a `state.vscdb` file → Cursor, `sessions/<YYYY>/` → Codex, `tmp/` + `installation_id` → Gemini CLI, `sessions/<%encoded-cwd>/` → Grok). Grok lives at `~/.grok`, so pass `path='~/.grok'` (or `source='grok'`).
+- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, `'gemini'`, or `'grok'`. Use when auto-detection fails or for non-standard directory layouts.
 
-Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, or `'gemini'`) as the first column.
+Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, `'gemini'`, or `'grok'`) as the first column.
 
 > **Cursor** support is gated behind the default-on `cursor` cargo feature. It reads `state.vscdb` with a self-contained, pure-Rust, read-only SQLite reader (`src/vscdb.rs`) — no external dependency and no bundled C SQLite, so every target arch (including `windows_amd64_mingw`) builds with negligible size overhead. Build with `--no-default-features` to drop it. Only `read_conversations()` is implemented for Cursor; the other tables return no rows for `source='cursor'`.
 
 > **Codex** conversation data is read **only** from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. The `~/.codex/*.sqlite` files (app automation / logging / inbox) are intentionally ignored. Codex has no extra build dependencies.
+
+> **Grok** has no extra build dependencies. Its `chat_history.jsonl` transcript carries no per-message `uuid`/`parent_uuid`/`timestamp`; `timestamp` is backfilled from the session's `summary.json` (`created_at`), and `uuid`/`parent_uuid` are left `NULL` (consistent with the existing NULL-gap convention).
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
@@ -138,6 +140,7 @@ Reads conversation/event data.
 - **Cursor:** `composerData:*` / `bubbleId:*` rows from `state.vscdb` (read with the pure-Rust `src/vscdb.rs` reader; one composer = one session)
 - **Codex:** JSONL rollout streams from `sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl`
 - **Gemini:** JSON chat checkpoints from `tmp/<project-hash>/chats/session-<ts>-<id>.json` (one file = one session; each tool call is also emitted as a `tool_call` row)
+- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata (timestamp, branch, model, repo) backfilled from the sibling `summary.json`
 
 | Column | Type | Description |
 |--------|------|-------------|

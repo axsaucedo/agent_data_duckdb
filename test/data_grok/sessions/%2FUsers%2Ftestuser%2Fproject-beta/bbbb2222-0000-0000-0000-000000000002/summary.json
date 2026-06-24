@@ -1,0 +1,10 @@
+{
+  "created_at": "2026-05-19T10:00:00.000000Z",
+  "updated_at": "2026-05-19T10:01:00.000000Z",
+  "current_model_id": "grok-4-fast",
+  "chat_format_version": 1,
+  "head_branch": "main",
+  "git_root_dir": "/Users/testuser/project-beta",
+  "git_remotes": ["git@github.com:testuser/project-beta.git"],
+  "generated_title": "Arithmetic question"
+}

@@ -49,13 +49,14 @@ impl TableFunc for Stats {
                 }).collect()
             }
             // Only Claude ships a precomputed stats-cache.json. Copilot, Claude
-            // Desktop, Cursor, Codex, and Gemini stats can be derived in SQL from
-            // read_conversations() instead; return empty here.
+            // Desktop, Cursor, Codex, Gemini, and Grok stats can be derived in
+            // SQL from read_conversations() instead; return empty here.
             Provider::ClaudeDesktop
             | Provider::Copilot
             | Provider::Cursor
             | Provider::Codex
             | Provider::Gemini
+            | Provider::Grok
             | Provider::Unknown => Vec::new(),
         }
     }

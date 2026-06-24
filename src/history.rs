@@ -102,11 +102,13 @@ impl TableFunc for History {
             // Claude Desktop has no history.jsonl. Cursor has no command-history
             // equivalent. Codex session_index.jsonl is a candidate but deferred for
             // v1; Gemini keeps user prompts in tmp/<hash>/logs.json, already
-            // surfaced as `user` rows in read_conversations. Return empty.
+            // surfaced as `user` rows in read_conversations; Grok's prompt history
+            // is a candidate source — deferred to a follow-up. Return empty.
             Provider::ClaudeDesktop
             | Provider::Cursor
             | Provider::Codex
             | Provider::Gemini
+            | Provider::Grok
             | Provider::Unknown => Vec::new(),
         }
     }

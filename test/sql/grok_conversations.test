@@ -1,0 +1,173 @@
+# name: test/sql/grok_conversations.test
+# description: comprehensive tests for Grok conversation loading
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts (8 messages across 2 sessions: 6 + 2)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok');
+----
+8
+
+# 2 distinct sessions
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_grok');
+----
+2
+
+# ============================================================
+# Source column
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE source != 'grok';
+----
+0
+
+# Explicit source='grok' returns same count
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok', source='grok');
+----
+8
+
+# ============================================================
+# Session breakdown
+# ============================================================
+
+query II
+SELECT session_id, COUNT(*) AS cnt FROM read_conversations(path='test/data_grok')
+GROUP BY session_id ORDER BY session_id;
+----
+aaaa1111-0000-0000-0000-000000000001	6
+bbbb2222-0000-0000-0000-000000000002	2
+
+# ============================================================
+# Message types
+# ============================================================
+
+query II
+SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_grok')
+GROUP BY message_type ORDER BY message_type;
+----
+assistant	3
+system	1
+tool_result	1
+user	3
+
+# ============================================================
+# Column invariants
+# ============================================================
+
+# session_id never NULL or empty
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE session_id IS NULL OR session_id = '';
+----
+0
+
+# message_type never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE message_type IS NULL;
+----
+0
+
+# Grok uuid is always NULL (no per-message id in chat_history.jsonl)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE uuid IS NOT NULL;
+----
+0
+
+# Grok slug is always NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE slug IS NOT NULL;
+----
+0
+
+# timestamp backfilled from summary.created_at (session-level) on every row
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE timestamp IS NULL;
+----
+0
+
+# ============================================================
+# Content + role mapping
+# ============================================================
+
+# User messages have content and role=user
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'user' AND (message_content IS NULL OR message_role != 'user');
+----
+0
+
+# Assistant messages have role=assistant
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'assistant' AND message_role != 'assistant';
+----
+0
+
+# Tool results carry role=tool and a tool_use_id, but no tool_name
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'tool_result'
+  AND (message_role != 'tool' OR tool_use_id IS NULL OR tool_name IS NOT NULL);
+----
+0
+
+# ============================================================
+# Tool calls (assistant.tool_calls[0])
+# ============================================================
+
+query III
+SELECT tool_name, tool_use_id, (tool_input IS NOT NULL) AS has_input
+FROM read_conversations(path='test/data_grok')
+WHERE tool_name IS NOT NULL;
+----
+create_file	call_001	true
+
+# ============================================================
+# Session metadata from summary.json
+# ============================================================
+
+# git_branch populated from summary.head_branch
+query II
+SELECT DISTINCT session_id, git_branch FROM read_conversations(path='test/data_grok')
+ORDER BY session_id;
+----
+aaaa1111-0000-0000-0000-000000000001	feature/hello
+bbbb2222-0000-0000-0000-000000000002	main
+
+# repository populated from summary.git_remotes[0]
+query I
+SELECT COUNT(DISTINCT repository) FROM read_conversations(path='test/data_grok')
+WHERE repository IS NOT NULL;
+----
+2
+
+# model populated (assistant model_id, else session current_model_id)
+query I
+SELECT COUNT(DISTINCT model) FROM read_conversations(path='test/data_grok')
+WHERE model IS NOT NULL;
+----
+2
+
+# cwd is the url-decoded session directory
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE cwd = '/Users/testuser/project-alpha';
+----
+6
+
+# ============================================================
+# No parse errors
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE message_type = '_parse_error';
+----
+0

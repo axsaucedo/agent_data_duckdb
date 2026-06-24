@@ -579,3 +579,73 @@ pub fn read_gemini_project_map(base_path: &Path) -> std::collections::HashMap<St
     }
     map
 }
+
+// ─── Grok Discovery Functions ───
+
+/// Discover Grok chat_history.jsonl files.
+/// Layout: <base>/sessions/<url-encoded-cwd>/<session-uuid>/chat_history.jsonl
+/// Returns (session_uuid, decoded_cwd, encoded_cwd, file_path) tuples, sorted.
+pub fn discover_grok_session_files(base_path: &Path) -> Vec<(String, String, String, PathBuf)> {
+    let sessions_dir = base_path.join("sessions");
+    let mut results = Vec::new();
+    if !sessions_dir.is_dir() {
+        return results;
+    }
+
+    let mut cwd_dirs: Vec<_> = std::fs::read_dir(&sessions_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    cwd_dirs.sort_by_key(|e| e.file_name());
+
+    for cwd_entry in cwd_dirs {
+        let encoded_cwd = cwd_entry.file_name().to_string_lossy().to_string();
+        let decoded_cwd = url_decode(&encoded_cwd);
+
+        let mut session_dirs: Vec<_> = std::fs::read_dir(cwd_entry.path())
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        session_dirs.sort_by_key(|e| e.file_name());
+
+        for session_entry in session_dirs {
+            let chat = session_entry.path().join("chat_history.jsonl");
+            if chat.is_file() {
+                let session_uuid = session_entry.file_name().to_string_lossy().to_string();
+                results.push((session_uuid, decoded_cwd.clone(), encoded_cwd.clone(), chat));
+            }
+        }
+    }
+    results
+}
+
+/// Read a Grok session's summary.json (sibling of chat_history.jsonl).
+pub fn read_grok_summary(session_dir: &Path) -> Option<crate::types::grok::GrokSummary> {
+    let content = std::fs::read_to_string(session_dir.join("summary.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Minimal percent-decoding for Grok's url-encoded cwd directory names
+/// (`%2FUsers%2F...` → `/Users/...`). Handles the `%2F` case Grok actually emits.
+pub fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+            if let Ok(b) = u8::from_str_radix(hex, 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
+}
