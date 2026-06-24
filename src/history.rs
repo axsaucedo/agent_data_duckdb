@@ -99,8 +99,10 @@ impl TableFunc for History {
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
-            // Claude Desktop has no history.jsonl; return empty.
-            Provider::ClaudeDesktop | Provider::Unknown => Vec::new(),
+            // Claude Desktop has no history.jsonl. Gemini keeps user prompts in
+            // tmp/<hash>/logs.json, but they are already surfaced as `user` rows
+            // in read_conversations, so read_history returns empty here.
+            Provider::ClaudeDesktop | Provider::Gemini | Provider::Unknown => Vec::new(),
         }
     }
 

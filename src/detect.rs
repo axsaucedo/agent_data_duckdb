@@ -6,6 +6,7 @@ pub enum Provider {
     Claude,
     ClaudeDesktop,
     Copilot,
+    Gemini,
     Unknown,
 }
 
@@ -13,6 +14,7 @@ pub enum Provider {
 /// - `local-agent-mode-sessions/` directory → Claude Desktop
 /// - `projects/` directory → Claude
 /// - `session-state/` directory → Copilot
+/// - `tmp/` directory + `installation_id` file → Gemini CLI (`~/.gemini`)
 pub fn detect_provider(path: &Path) -> Provider {
     if path.join("local-agent-mode-sessions").is_dir() {
         return Provider::ClaudeDesktop;
@@ -23,6 +25,12 @@ pub fn detect_provider(path: &Path) -> Provider {
     if path.join("session-state").is_dir() {
         return Provider::Copilot;
     }
+    // Gemini CLI keeps chats under `tmp/<project-hash>/chats/`. The `tmp/` name
+    // alone is too generic, so require the Gemini-specific `installation_id`
+    // file (written by the CLI to `~/.gemini`) as a corroborating marker.
+    if path.join("tmp").is_dir() && path.join("installation_id").is_file() {
+        return Provider::Gemini;
+    }
     Provider::Unknown
 }
 
@@ -32,6 +40,7 @@ pub fn parse_source(source: &str) -> Provider {
         "claude" => Provider::Claude,
         "claude-desktop" => Provider::ClaudeDesktop,
         "copilot" => Provider::Copilot,
+        "gemini" => Provider::Gemini,
         _ => Provider::Unknown,
     }
 }

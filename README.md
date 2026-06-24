@@ -2,9 +2,9 @@
 
 A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`) and [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`).
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`).
 
-> OpenAI Codex and Gemini CLI Coming Soon™.
+> OpenAI Codex Coming Soon™.
 
 Written in 🦀 Rust.
 
@@ -79,12 +79,22 @@ FROM read_todos('~/work_folder/.claude')
 WHERE status != 'completed'
 ORDER BY item_index;
 
--- Compare activity across Claude and Copilot
+-- Which tools does Gemini CLI use most?
+SELECT tool_name, COUNT(*) AS uses
+FROM read_conversations('~/.gemini')
+WHERE message_type = 'tool_call'
+GROUP BY tool_name
+ORDER BY uses DESC
+LIMIT 10;
+
+-- Compare activity across Claude, Copilot, and Gemini
 SELECT source, COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS messages
 FROM (
     SELECT * FROM read_conversations(path='~/.claude')
     UNION ALL
     SELECT * FROM read_conversations(path='~/.copilot')
+    UNION ALL
+    SELECT * FROM read_conversations(path='~/.gemini')
 )
 GROUP BY source;
 ```
@@ -101,20 +111,21 @@ When called **without arguments**, each function reads from its provider's defau
 | `read_history()` | `~/.claude` | Claude Code |
 | `read_stats()` | `~/.claude` | Claude Code |
 
-To read Claude Desktop or Copilot data, pass the path explicitly:
+To read Claude Desktop, Copilot, or Gemini data, pass the path explicitly:
 
 ```sql
 FROM read_conversations(path='~/Library/Application Support/Claude');  -- detected as Claude Desktop
 FROM read_conversations(path='~/.copilot');  -- detected as Copilot
+FROM read_conversations(path='~/.gemini');  -- detected as Gemini CLI
 ```
 
 ### Available Functions
 
 All functions accept two optional parameters:
-- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot).
-- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, or `'copilot'`. Use when auto-detection fails or for non-standard directory layouts.
+- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, `tmp/` + `installation_id` → Gemini CLI).
+- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, or `'gemini'`. Use when auto-detection fails or for non-standard directory layouts.
 
-Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, or `'copilot'`) as the first column.
+Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, or `'gemini'`) as the first column.
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
@@ -122,10 +133,11 @@ Reads conversation/event data.
 - **Claude:** JSONL files from `projects/<project>/<session>.jsonl` (including nested sub-agent transcripts at `projects/<project>/<session>/subagents/agent-*.jsonl`)
 - **Claude Desktop:** JSONL files from `local-agent-mode-sessions/**/.claude/projects/<project>/<session>.jsonl` (same schema as Claude Code)
 - **Copilot:** JSONL events from `session-state/<uuid>/events.jsonl`
+- **Gemini:** JSON chat checkpoints from `tmp/<project-hash>/chats/session-<ts>-<id>.json` (one file = one session; each tool call is also emitted as a `tool_call` row)
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, or `'copilot'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, `'copilot'`, or `'gemini'` |
 | `session_id` | VARCHAR | Session UUID |
 | `project_path` | VARCHAR | Project/working directory path |
 | `project_dir` | VARCHAR | Raw encoded directory name (Claude only) |
@@ -142,10 +154,10 @@ Reads conversation/event data.
 | `tool_name` | VARCHAR | Tool called |
 | `tool_use_id` | VARCHAR | Tool use/call identifier |
 | `tool_input` | VARCHAR | Tool input as JSON string |
-| `input_tokens` | BIGINT | Input token count (Claude per-message, Copilot truncation) |
+| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation) |
 | `output_tokens` | BIGINT | Output token count |
 | `cache_creation_tokens` | BIGINT | Cache creation tokens (Claude only) |
-| `cache_read_tokens` | BIGINT | Cache read tokens (Claude only) |
+| `cache_read_tokens` | BIGINT | Cache read tokens (Claude; Gemini `cached`) |
 | `slug` | VARCHAR | Session slug (Claude only) |
 | `git_branch` | VARCHAR | Git branch |
 | `cwd` | VARCHAR | Working directory |
@@ -155,20 +167,26 @@ Reads conversation/event data.
 
 **Message type mappings:**
 
-| Claude | Copilot | Description |
-|--------|---------|-------------|
-| `user` | `user` | User message |
-| `assistant` | `assistant` | Assistant response |
-| `system` | — | System prompt |
-| `summary` | — | Conversation summary |
-| — | `reasoning` | Assistant reasoning |
-| — | `turn_start` / `turn_end` | Assistant turn boundaries |
-| — | `tool_start` / `tool_result` | Tool execution events |
-| — | `session_start` / `session_resume` | Session lifecycle |
-| — | `session_info` / `session_error` | Session info/errors |
-| — | `truncation` / `model_change` | Context management |
-| — | `compaction_start` / `compaction_complete` | Context compaction |
-| — | `abort` | User cancellation |
+| Claude | Copilot | Gemini | Description |
+|--------|---------|--------|-------------|
+| `user` | `user` | `user` | User message |
+| `assistant` | `assistant` | `assistant` (from `gemini`) | Assistant response |
+| `system` | — | — | System prompt |
+| `summary` | — | — | Conversation summary |
+| — | `reasoning` | — | Assistant reasoning |
+| — | `turn_start` / `turn_end` | — | Assistant turn boundaries |
+| — | `tool_start` / `tool_result` | `tool_call` | Tool execution events |
+| — | `session_start` / `session_resume` | — | Session lifecycle |
+| — | `session_info` / `session_error` | `info` / `error` | Session info/errors |
+| — | `truncation` / `model_change` | — | Context management |
+| — | `compaction_start` / `compaction_complete` | — | Context compaction |
+| — | `abort` | — | User cancellation |
+
+> **Gemini tool calls:** each assistant (`gemini`) turn may embed multiple
+> `toolCalls`. The first is surfaced inline on the assistant row (`tool_name` /
+> `tool_use_id` / `tool_input`), and every call additionally gets its own
+> `tool_call` row whose `parent_uuid` links back to the assistant message and
+> whose `message_content` holds the call status (`success` / `error` / `cancelled`).
 
 ### `read_plans([path], [source])`
 
@@ -221,7 +239,7 @@ Reads command history.
 
 ### `read_stats([path], [source])`
 
-Reads daily activity stats. Currently Claude only — returns empty for Copilot.
+Reads daily activity stats. Currently Claude only — returns empty for Copilot, Claude Desktop, and Gemini.
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -237,6 +255,7 @@ The extension auto-detects the data source by examining the directory structure:
 - **Claude Desktop:** contains `local-agent-mode-sessions/` directory
 - **Claude:** contains `projects/` directory
 - **Copilot:** contains `session-state/` directory
+- **Gemini CLI:** contains a `tmp/` directory plus an `installation_id` file
 - **Unknown:** returns empty results (or use `source` parameter to force)
 
 ```sql
@@ -244,9 +263,10 @@ The extension auto-detects the data source by examining the directory structure:
 FROM read_conversations(path='~/.claude');   -- detected as Claude
 FROM read_conversations(path='~/Library/Application Support/Claude');  -- detected as Claude Desktop
 FROM read_conversations(path='~/.copilot');  -- detected as Copilot
+FROM read_conversations(path='~/.gemini');   -- detected as Gemini CLI
 
 -- Override detection
-FROM read_conversations(path='custom/dir', source='copilot');
+FROM read_conversations(path='custom/dir', source='gemini');
 ```
 
 ## Join Keys

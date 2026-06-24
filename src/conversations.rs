@@ -1,6 +1,7 @@
 use crate::detect::{self, Provider};
 use crate::types::claude::*;
 use crate::types::copilot::*;
+use crate::types::gemini::*;
 use crate::utils;
 use crate::vtab::{self, ColDef, TableFunc};
 use duckdb::core::DataChunkHandle;
@@ -421,6 +422,135 @@ impl Conversations {
     }
 }
 
+// ─── Gemini loading ───
+
+impl Conversations {
+    fn load_gemini_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let chat_files = utils::discover_gemini_chat_files(base_path);
+        let project_map = utils::read_gemini_project_map(base_path);
+        let mut rows = Vec::new();
+
+        for (project_hash, file_path) in &chat_files {
+            let file_name = file_path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let content = match std::fs::read_to_string(file_path) {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+
+            let session = match serde_json::from_str::<GeminiSession>(&content) {
+                Ok(s) => s,
+                Err(e) => {
+                    rows.push(ConversationRow {
+                        source: "gemini".to_string(),
+                        session_id: project_hash.clone(),
+                        project_dir: project_hash.clone(),
+                        file_name: file_name.clone(),
+                        line_number: 1,
+                        message_type: "_parse_error".to_string(),
+                        message_content: Some(format!("Parse error: {}", e)),
+                        ..Default::default()
+                    });
+                    continue;
+                }
+            };
+
+            let session_id = session
+                .session_id
+                .clone()
+                .unwrap_or_else(|| project_hash.clone());
+            // Resolve the project hash back to an absolute path when an alias
+            // mapping exists; otherwise leave the project path empty (the hash
+            // is an opaque SHA-256 of the original cwd).
+            let project_path = project_map.get(project_hash).cloned().unwrap_or_default();
+            let is_agent = session.kind.as_deref() == Some("subagent");
+
+            // Each message gets a 1-based ordinal within the session file.
+            let mut message_index: i64 = 0;
+            for msg in &session.messages {
+                message_index += 1;
+                let (message_type, message_role) = Self::gemini_type_role(msg.message_type.as_deref());
+
+                let mut row = ConversationRow {
+                    source: "gemini".to_string(),
+                    session_id: session_id.clone(),
+                    project_path: project_path.clone(),
+                    project_dir: project_hash.clone(),
+                    file_name: file_name.clone(),
+                    is_agent,
+                    line_number: message_index,
+                    message_type: message_type.to_string(),
+                    uuid: msg.id.clone(),
+                    timestamp: msg.timestamp.clone().or_else(|| session.start_time.clone()),
+                    message_role: message_role.map(String::from),
+                    message_content: msg.content.clone().filter(|c| !c.is_empty()),
+                    model: msg.model.clone(),
+                    cwd: if project_path.is_empty() { None } else { Some(project_path.clone()) },
+                    ..Default::default()
+                };
+
+                if let Some(tokens) = &msg.tokens {
+                    row.input_tokens = tokens.input;
+                    row.output_tokens = tokens.output;
+                    // Gemini reports a single `cached` figure (read-side reuse).
+                    row.cache_read_tokens = tokens.cached;
+                }
+
+                // Surface the first tool call inline on the assistant row (mirrors
+                // Claude/Copilot), then emit one dedicated `tool_call` row per call
+                // so multi-tool turns are not collapsed.
+                let tool_calls = msg.tool_calls.as_deref().unwrap_or(&[]);
+                if let Some(first) = tool_calls.first() {
+                    row.tool_name = first.name.clone();
+                    row.tool_use_id = first.id.clone();
+                    row.tool_input = first.args.as_ref().map(|a| a.to_string());
+                }
+                rows.push(row);
+
+                for tc in tool_calls {
+                    rows.push(ConversationRow {
+                        source: "gemini".to_string(),
+                        session_id: session_id.clone(),
+                        project_path: project_path.clone(),
+                        project_dir: project_hash.clone(),
+                        file_name: file_name.clone(),
+                        is_agent,
+                        line_number: message_index,
+                        message_type: "tool_call".to_string(),
+                        uuid: tc.id.clone(),
+                        parent_uuid: msg.id.clone(),
+                        timestamp: tc.timestamp.clone().or_else(|| msg.timestamp.clone()),
+                        message_role: Some("tool".to_string()),
+                        message_content: tc.status.clone(),
+                        model: msg.model.clone(),
+                        tool_name: tc.name.clone(),
+                        tool_use_id: tc.id.clone(),
+                        tool_input: tc.args.as_ref().map(|a| a.to_string()),
+                        cwd: if project_path.is_empty() { None } else { Some(project_path.clone()) },
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        rows
+    }
+
+    /// Map a Gemini message `type` to (message_type, message_role).
+    /// Gemini uses `gemini` for the assistant; everything else passes through.
+    fn gemini_type_role(message_type: Option<&str>) -> (&'static str, Option<&'static str>) {
+        match message_type {
+            Some("user") => ("user", Some("user")),
+            Some("gemini") => ("assistant", Some("assistant")),
+            Some("info") => ("info", None),
+            Some("error") => ("error", None),
+            _ => ("unknown", None),
+        }
+    }
+}
+
 // ─── TableFunc implementation ───
 
 impl TableFunc for Conversations {
@@ -451,6 +581,7 @@ impl TableFunc for Conversations {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::ClaudeDesktop => Self::load_claude_desktop_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
+            Provider::Gemini => Self::load_gemini_rows(&base_path),
             Provider::Unknown => Vec::new(),
         }
     }
