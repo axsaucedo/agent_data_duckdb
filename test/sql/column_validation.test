@@ -116,6 +116,50 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_copilot') WHERE message_
 0
 
 # ============================================================
+# NULL pattern validation: Cursor conversations
+# (requires the default-on `cursor` cargo feature)
+# ============================================================
+
+# source is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE source IS NULL;
+----
+0
+
+# session_id is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE session_id IS NULL;
+----
+0
+
+# message_type is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor') WHERE message_type IS NULL;
+----
+0
+
+# line_number is BIGINT and always positive
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor')
+WHERE typeof(line_number) != 'BIGINT' OR line_number <= 0;
+----
+0
+
+# is_agent is BOOLEAN
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor')
+WHERE typeof(is_agent) != 'BOOLEAN';
+----
+0
+
+# git_branch and version are always NULL for Cursor (not persisted in state.vscdb)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor')
+WHERE git_branch IS NOT NULL OR version IS NOT NULL;
+----
+0
+
+# ============================================================
 # Plans: file_size consistency
 # ============================================================
 
@@ -166,6 +210,11 @@ query II
 SELECT source, COUNT(*) FROM read_conversations(path='test/data_copilot') GROUP BY source ORDER BY source;
 ----
 copilot	53
+
+query II
+SELECT source, COUNT(*) FROM read_conversations(path='test/data_cursor') GROUP BY source ORDER BY source;
+----
+cursor	2
 
 # GROUP BY message_type on Claude produces 4 groups
 query I

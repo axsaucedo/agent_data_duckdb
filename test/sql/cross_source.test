@@ -154,3 +154,68 @@ SELECT COUNT(DISTINCT source) FROM (
 );
 ----
 2
+
+# ============================================================
+# Cursor participates in cross-source UNION
+# (requires the default-on `cursor` cargo feature)
+# ============================================================
+
+# Conversations across all three sources: 180 + 53 + 2 = 235
+query I
+SELECT COUNT(*) FROM (
+    SELECT * FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_cursor')
+);
+----
+235
+
+# Source breakdown including Cursor
+query II
+SELECT source, COUNT(*) AS cnt FROM (
+    SELECT * FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_cursor')
+) GROUP BY source ORDER BY source;
+----
+claude	180
+copilot	53
+cursor	2
+
+# Three distinct sources in the conversations UNION
+query I
+SELECT COUNT(DISTINCT source) FROM (
+    SELECT source FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT source FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT source FROM read_conversations(path='test/data_cursor')
+);
+----
+3
+
+# Cursor session ids do not collide with Claude or Copilot
+query I
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT session_id FROM read_conversations(path='test/data_cursor') WHERE session_id != ''
+    INTERSECT
+    SELECT DISTINCT session_id FROM read_conversations(path='test/data_copilot') WHERE session_id != ''
+);
+----
+0
+
+# Only Cursor rows carry the state.vscdb file_name
+query I
+SELECT COUNT(DISTINCT source) FROM (
+    SELECT * FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_cursor')
+) WHERE file_name = 'state.vscdb';
+----
+1
