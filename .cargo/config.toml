@@ -1,22 +1,3 @@
 # statically linking the C runtime on windows seems sensible?
 [target.x86_64-pc-windows-msvc]
 rustflags = ["-Ctarget-feature=+crt-static"]
-
-# The Windows MinGW build (duckdb arch `windows_amd64_mingw`, Rust target
-# `x86_64-pc-windows-gnu`) statically links the bundled SQLite from
-# libsqlite3-sys (rusqlite `bundled` feature). That sqlite3.o references MinGW
-# CRT / libgcc symbols which are not otherwise on the link line, producing
-# LNK2019 unresolved externals:
-#   __imp__beginthreadex, __imp__endthreadex  -> msvcrt   (threaded sorter)
-#   __imp__localtime64                        -> msvcrt   (date/time helpers)
-#   __chkstk_ms                               -> gcc      (stack probe)
-# Explicitly link the MinGW runtime libraries that provide them. This only
-# affects the gnu target; the MSVC build above is unchanged.
-[target.x86_64-pc-windows-gnu]
-rustflags = [
-    "-Clink-arg=-lmsvcrt",
-    "-Clink-arg=-lmingwex",
-    "-Clink-arg=-lmingw32",
-    "-Clink-arg=-lgcc",
-    "-Clink-arg=-lkernel32",
-]

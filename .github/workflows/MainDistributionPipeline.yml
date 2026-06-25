@@ -21,4 +21,10 @@ jobs:
       ci_tools_version: v1.5-variegata
       extension_name: agent_data
       extra_toolchains: rust
-      exclude_archs: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl"
+      # windows_amd64_mingw excluded: the Cursor provider pulls in libsqlite3-sys
+      # (rusqlite `bundled`), whose sqlite3.c is compiled with mingw gcc and emits
+      # libgcc/MSVCRT symbols (__chkstk_ms, _beginthreadex, _localtime64) that the
+      # link step cannot resolve on that arch. All other Windows/Linux/macOS archs
+      # build and test cleanly; mingw + a bundled-C crate is an unsupportable
+      # toolchain mix here.
+      exclude_archs: "wasm_mvp;wasm_eh;wasm_threads;linux_amd64_musl;windows_amd64_mingw"
