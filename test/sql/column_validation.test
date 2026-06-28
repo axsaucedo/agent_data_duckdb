@@ -151,6 +151,41 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE uuid IS NO
 0
 
 # ============================================================
+# NULL pattern validation: Gemini conversations
+# ============================================================
+
+# source is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE source IS NULL;
+----
+0
+
+# session_id is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE session_id IS NULL;
+----
+0
+
+# message_type is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE message_type IS NULL;
+----
+0
+
+# is_agent is BOOLEAN
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE typeof(is_agent) != 'BOOLEAN';
+----
+0
+
+# line_number always positive
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE line_number <= 0;
+----
+0
+
+# ============================================================
 # Plans: file_size consistency
 # ============================================================
 
@@ -206,6 +241,11 @@ query II
 SELECT source, COUNT(*) FROM read_conversations(path='test/data_codex') GROUP BY source ORDER BY source;
 ----
 codex	5
+
+query II
+SELECT source, COUNT(*) FROM read_conversations(path='test/data_gemini') GROUP BY source ORDER BY source;
+----
+gemini	11
 
 # GROUP BY message_type on Claude produces 4 groups
 query I

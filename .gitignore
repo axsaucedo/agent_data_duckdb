@@ -109,6 +109,11 @@ copilot_raw
 extension-template
 extension-template-c
 tmp
+# but keep the Gemini CLI test fixtures, whose realistic on-disk layout nests
+# session transcripts under tmp/<project-hash>/chats/ (the bare `tmp` ignore
+# above would otherwise silently exclude the fixture chat files).
+!test/data_gemini/tmp/
+!test/data_gemini/tmp/**
 examples/__marimo__/
 claude_raw
 community-extensions
