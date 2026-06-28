@@ -6,7 +6,7 @@ cd "$ROOT"
 
 mkdir -p tmp
 
-python3 scripts/update_duckdb_release.py --check
+python3 scripts/update_duckdb_release.py --check-consistency
 
 make clean_all
 cargo metadata --locked > tmp/cargo-metadata.json
