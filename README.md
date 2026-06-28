@@ -2,9 +2,7 @@
 
 A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`).
-
-> OpenAI Codex Coming Soon™.
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`, `source='codex'`) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`).
 
 Written in 🦀 Rust.
 
@@ -122,10 +120,12 @@ FROM read_conversations(path='~/.gemini');  -- detected as Gemini CLI
 ### Available Functions
 
 All functions accept two optional parameters:
-- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, `tmp/` + `installation_id` → Gemini CLI).
-- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, or `'gemini'`. Use when auto-detection fails or for non-standard directory layouts.
+- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, `sessions/<YYYY>/` → Codex, `tmp/` + `installation_id` → Gemini CLI).
+- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, `'codex'`, or `'gemini'`. Use when auto-detection fails or for non-standard directory layouts.
 
-Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, or `'gemini'`) as the first column.
+Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, `'codex'`, or `'gemini'`) as the first column.
+
+> **Codex** conversation data is read **only** from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. The `~/.codex/*.sqlite` files (app automation / logging / inbox) are intentionally ignored. Codex has no extra build dependencies.
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
@@ -346,7 +346,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-231 pinned assertions across 15 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
+266 pinned assertions across 16 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
 
 ## Building from Source
 

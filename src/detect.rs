@@ -6,6 +6,7 @@ pub enum Provider {
     Claude,
     ClaudeDesktop,
     Copilot,
+    Codex,
     Gemini,
     Unknown,
 }
@@ -14,6 +15,7 @@ pub enum Provider {
 /// - `local-agent-mode-sessions/` directory → Claude Desktop
 /// - `projects/` directory → Claude
 /// - `session-state/` directory → Copilot
+/// - `sessions/` with `YYYY/` date partitions (rollout files) → Codex
 /// - `tmp/` directory + `installation_id` file → Gemini CLI (`~/.gemini`)
 pub fn detect_provider(path: &Path) -> Provider {
     if path.join("local-agent-mode-sessions").is_dir() {
@@ -24,6 +26,24 @@ pub fn detect_provider(path: &Path) -> Provider {
     }
     if path.join("session-state").is_dir() {
         return Provider::Copilot;
+    }
+    // Codex partitions transcripts by date: sessions/YYYY/MM/DD/rollout-*.jsonl.
+    let sessions = path.join("sessions");
+    if sessions.is_dir() {
+        let has_year_dir = std::fs::read_dir(&sessions)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .any(|e| {
+                e.path().is_dir()
+                    && e.file_name()
+                        .to_string_lossy()
+                        .chars()
+                        .all(|c| c.is_ascii_digit())
+            });
+        if has_year_dir {
+            return Provider::Codex;
+        }
     }
     // Gemini CLI keeps chats under `tmp/<project-hash>/chats/`. The `tmp/` name
     // alone is too generic, so require the Gemini-specific `installation_id`
@@ -40,6 +60,7 @@ pub fn parse_source(source: &str) -> Provider {
         "claude" => Provider::Claude,
         "claude-desktop" => Provider::ClaudeDesktop,
         "copilot" => Provider::Copilot,
+        "codex" => Provider::Codex,
         "gemini" => Provider::Gemini,
         _ => Provider::Unknown,
     }

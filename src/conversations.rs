@@ -1,5 +1,6 @@
 use crate::detect::{self, Provider};
 use crate::types::claude::*;
+use crate::types::codex::*;
 use crate::types::copilot::*;
 use crate::types::gemini::*;
 use crate::utils;
@@ -422,6 +423,237 @@ impl Conversations {
     }
 }
 
+// ─── Codex loading ───
+//
+// rollout-*.jsonl is a single ordered stream. `session_meta` (first line) and the
+// latest `turn_context` are carried forward and applied to every emitted row —
+// the same "session metadata backfill" technique used for Copilot above.
+// `session_meta` / `turn_context` / `token_count` lines are NOT emitted as rows.
+
+impl Conversations {
+    fn load_codex_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let files = utils::discover_codex_rollout_files(base_path);
+        let mut rows = Vec::new();
+
+        for (session_uuid, file_path) in &files {
+            let file_name = file_path
+                .file_name()
+                .map(|f| f.to_string_lossy().to_string())
+                .unwrap_or_default();
+
+            let file = match std::fs::File::open(file_path) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+
+            let mut meta = CodexSessionMeta::default();
+            let mut current_model: Option<String> = None;
+            let mut file_line: i64 = 0;
+            // event_msg/{user,agent}_message duplicate the response_item/message
+            // turns. Buffer them and only emit as a fallback for sessions that
+            // carry no response_item/message rows, so canonical turns are never
+            // double-counted.
+            let mut has_response_message = false;
+            let mut event_msg_fallback: Vec<ConversationRow> = Vec::new();
+
+            for line_result in BufReader::new(file).lines() {
+                file_line += 1;
+                let line = match line_result {
+                    Ok(l) if !l.trim().is_empty() => l,
+                    _ => continue,
+                };
+
+                let parsed: CodexLine = match serde_json::from_str(&line) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        rows.push(ConversationRow {
+                            source: "codex".to_string(),
+                            session_id: session_uuid.clone(),
+                            file_name: file_name.clone(),
+                            line_number: file_line,
+                            message_type: "_parse_error".to_string(),
+                            message_content: Some(format!("Parse error: {}", e)),
+                            ..Default::default()
+                        });
+                        continue;
+                    }
+                };
+
+                match parsed.line_type.as_str() {
+                    "session_meta" => {
+                        if let Ok(m) =
+                            serde_json::from_value::<CodexSessionMeta>(parsed.payload.clone())
+                        {
+                            meta = m;
+                        }
+                        continue; // not a conversation row
+                    }
+                    "turn_context" => {
+                        if let Ok(tc) =
+                            serde_json::from_value::<CodexTurnContext>(parsed.payload.clone())
+                        {
+                            if let Some(m) = tc.model {
+                                current_model = Some(m);
+                            }
+                        }
+                        continue;
+                    }
+                    _ => {}
+                }
+
+                if let Some(row) = Self::codex_line_to_row(
+                    &parsed,
+                    session_uuid,
+                    &file_name,
+                    file_line,
+                    &meta,
+                    current_model.as_deref(),
+                ) {
+                    if parsed.line_type == "event_msg"
+                        && matches!(row.message_type.as_str(), "user" | "assistant")
+                    {
+                        event_msg_fallback.push(row);
+                    } else {
+                        if parsed.line_type == "response_item"
+                            && parsed.payload.get("type").and_then(|v| v.as_str())
+                                == Some("message")
+                        {
+                            has_response_message = true;
+                        }
+                        rows.push(row);
+                    }
+                }
+            }
+
+            if !has_response_message {
+                rows.append(&mut event_msg_fallback);
+            }
+        }
+        rows
+    }
+
+    fn codex_base_row(
+        session_uuid: &str,
+        file_name: &str,
+        line_number: i64,
+        timestamp: Option<String>,
+        meta: &CodexSessionMeta,
+        model: Option<&str>,
+    ) -> ConversationRow {
+        let git = meta.git.as_ref();
+        ConversationRow {
+            source: "codex".to_string(),
+            session_id: session_uuid.to_string(),
+            project_path: meta.cwd.clone().unwrap_or_default(),
+            file_name: file_name.to_string(),
+            line_number,
+            timestamp,
+            cwd: meta.cwd.clone(),
+            git_branch: git.and_then(|g| g.branch.clone()),
+            repository: git.and_then(|g| g.repository_url.clone()),
+            version: meta.cli_version.clone(),
+            model: model.map(String::from),
+            ..Default::default()
+        }
+    }
+
+    fn codex_line_to_row(
+        parsed: &CodexLine,
+        session_uuid: &str,
+        file_name: &str,
+        line_number: i64,
+        meta: &CodexSessionMeta,
+        model: Option<&str>,
+    ) -> Option<ConversationRow> {
+        let base = Self::codex_base_row(
+            session_uuid,
+            file_name,
+            line_number,
+            parsed.timestamp.clone(),
+            meta,
+            model,
+        );
+
+        match parsed.line_type.as_str() {
+            "response_item" => {
+                let item: CodexResponseItem =
+                    serde_json::from_value(parsed.payload.clone()).ok()?;
+                match item.item_type.as_deref() {
+                    Some("message") => {
+                        // Normalize to a role-specific type (user/assistant/...)
+                        // like the other providers, so cross-source filters on
+                        // message_type work; fall back to the raw role.
+                        let role = item.role.clone();
+                        let message_type = match role.as_deref() {
+                            Some("user") => "user".to_string(),
+                            Some("assistant") => "assistant".to_string(),
+                            Some(other) => other.to_string(),
+                            None => "message".to_string(),
+                        };
+                        Some(ConversationRow {
+                            message_type,
+                            message_role: role,
+                            message_content: item.content.as_ref().map(utils::extract_text_content),
+                            ..base
+                        })
+                    }
+                    Some("reasoning") => Some(ConversationRow {
+                        message_type: "reasoning".to_string(),
+                        message_role: Some("assistant".to_string()),
+                        message_content: item.summary.as_ref().map(utils::extract_text_content),
+                        ..base
+                    }),
+                    Some("function_call") => Some(ConversationRow {
+                        message_type: "function_call".to_string(),
+                        message_role: Some("tool".to_string()),
+                        tool_name: item.name.clone(),
+                        tool_use_id: item.call_id.clone(),
+                        tool_input: item.arguments.as_ref().map(|v| v.to_string()),
+                        ..base
+                    }),
+                    Some("function_call_output") => Some(ConversationRow {
+                        message_type: "function_call_output".to_string(),
+                        message_role: Some("tool".to_string()),
+                        tool_use_id: item.call_id.clone(),
+                        message_content: item.output.as_ref().map(utils::extract_text_content),
+                        ..base
+                    }),
+                    Some(other) => Some(ConversationRow {
+                        message_type: other.to_string(),
+                        ..base
+                    }),
+                    None => None,
+                }
+            }
+            "event_msg" => {
+                let ev: CodexEventMsg = serde_json::from_value(parsed.payload.clone()).ok()?;
+                match ev.event_type.as_deref() {
+                    // event_msg user/agent text duplicates the response_item
+                    // message rows above. The loader buffers these and only
+                    // emits them for sessions with no response_item/message
+                    // rows, so canonical turns are never double-counted.
+                    // task_started / task_complete / token_count are not
+                    // conversation rows.
+                    Some("user_message") => Some(ConversationRow {
+                        message_type: "user".to_string(),
+                        message_role: Some("user".to_string()),
+                        message_content: ev.message.clone(),
+                        ..base
+                    }),
+                    Some("agent_message") => Some(ConversationRow {
+                        message_type: "assistant".to_string(),
+                        message_role: Some("assistant".to_string()),
+                        message_content: ev.message.clone(),
+                        ..base
+                    }),
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+}
+
 // ─── Gemini loading ───
 
 impl Conversations {
@@ -577,6 +809,7 @@ impl TableFunc for Conversations {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::ClaudeDesktop => Self::load_claude_desktop_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
+            Provider::Codex => Self::load_codex_rows(&base_path),
             Provider::Gemini => Self::load_gemini_rows(&base_path),
             Provider::Unknown => Vec::new(),
         }

@@ -48,10 +48,14 @@ impl TableFunc for Stats {
                     tool_call_count: day.tool_call_count.unwrap_or(0),
                 }).collect()
             }
-            // Copilot, Claude Desktop, and Gemini have no stats-cache equivalent; return empty
-            Provider::ClaudeDesktop | Provider::Copilot | Provider::Gemini | Provider::Unknown => {
-                Vec::new()
-            }
+            // Only Claude ships a precomputed stats-cache.json. Copilot, Claude
+            // Desktop, Codex, and Gemini stats can be derived in SQL from
+            // read_conversations() instead; return empty here.
+            Provider::ClaudeDesktop
+            | Provider::Copilot
+            | Provider::Codex
+            | Provider::Gemini
+            | Provider::Unknown => Vec::new(),
         }
     }
 
