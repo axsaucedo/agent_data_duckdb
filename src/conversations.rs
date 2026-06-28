@@ -448,6 +448,12 @@ impl Conversations {
             let mut meta = CodexSessionMeta::default();
             let mut current_model: Option<String> = None;
             let mut file_line: i64 = 0;
+            // event_msg/{user,agent}_message duplicate the response_item/message
+            // turns. Buffer them and only emit as a fallback for sessions that
+            // carry no response_item/message rows, so canonical turns are never
+            // double-counted.
+            let mut has_response_message = false;
+            let mut event_msg_fallback: Vec<ConversationRow> = Vec::new();
 
             for line_result in BufReader::new(file).lines() {
                 file_line += 1;
@@ -502,8 +508,21 @@ impl Conversations {
                     &meta,
                     current_model.as_deref(),
                 ) {
-                    rows.push(row);
+                    if parsed.line_type == "event_msg"
+                        && matches!(row.message_type.as_str(), "user" | "assistant")
+                    {
+                        event_msg_fallback.push(row);
+                    } else {
+                        if parsed.line_type == "response_item" && row.message_type == "message" {
+                            has_response_message = true;
+                        }
+                        rows.push(row);
+                    }
                 }
+            }
+
+            if !has_response_message {
+                rows.append(&mut event_msg_fallback);
             }
         }
         rows
@@ -593,10 +612,12 @@ impl Conversations {
             "event_msg" => {
                 let ev: CodexEventMsg = serde_json::from_value(parsed.payload.clone()).ok()?;
                 match ev.event_type.as_deref() {
-                    // event_msg user/assistant text duplicates the response_item
-                    // message rows above; emit only as a fallback so we never
-                    // double-count. task_started / task_complete / token_count are
-                    // not conversation rows.
+                    // event_msg user/agent text duplicates the response_item
+                    // message rows above. The loader buffers these and only
+                    // emits them for sessions with no response_item/message
+                    // rows, so canonical turns are never double-counted.
+                    // task_started / task_complete / token_count are not
+                    // conversation rows.
                     Some("user_message") => Some(ConversationRow {
                         message_type: "user".to_string(),
                         message_role: Some("user".to_string()),
