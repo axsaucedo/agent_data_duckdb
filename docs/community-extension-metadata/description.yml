@@ -31,6 +31,8 @@ docs:
     -- Which tools does github copilot use most?
     SELECT tool_name, COUNT(*) AS uses
     FROM read_conversations('~/.copilot')
+    -- FROM read_conversations('~/.gemini')
+    -- FROM read_conversations('~/.codex')
     WHERE tool_name IS NOT NULL
     GROUP BY tool_name
     ORDER BY uses DESC
