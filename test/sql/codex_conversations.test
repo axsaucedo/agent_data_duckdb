@@ -52,10 +52,11 @@ query II
 SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
 GROUP BY message_type ORDER BY message_type;
 ----
+assistant	1
 function_call	1
 function_call_output	1
-message	2
 reasoning	1
+user	1
 
 # Roles: user/assistant messages, tool for function_*
 query II
@@ -71,25 +72,26 @@ user	1
 # like every other provider, not collapse both into a literal 'message'.
 # ============================================================
 
-# Both chat turns currently surface under the generic 'message' type.
+# Both chat turns are normalized to their role-specific type, so the generic
+# 'message' type is no longer used.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
 WHERE message_type = 'message';
 ----
-2
+0
 
-# Filtering by the cross-source 'user' type currently misses Codex turns.
+# Filtering by the cross-source 'user' type now matches the Codex user turn.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
 WHERE message_type = 'user';
 ----
-0
+1
 
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
 WHERE message_type = 'assistant';
 ----
-0
+1
 
 # ============================================================
 # A user/assistant turn is stored twice by Codex (response_item/message and
@@ -103,13 +105,13 @@ WHERE message_content = 'List the files.';
 ----
 1
 
-# event_msg user/agent copies must not surface as separate user/assistant rows
-# when canonical response_item/message rows exist.
+# Exactly the two canonical response_item turns surface as user/assistant; the
+# event_msg copies are not added on top.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
 WHERE message_type IN ('user', 'assistant');
 ----
-0
+2
 
 # ============================================================
 # Per-line timestamp present on every row (Codex strength)
