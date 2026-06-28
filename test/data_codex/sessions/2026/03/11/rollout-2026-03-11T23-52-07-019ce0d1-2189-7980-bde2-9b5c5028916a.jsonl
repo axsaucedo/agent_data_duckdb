@@ -1,8 +1,10 @@
 {"type":"session_meta","timestamp":"2026-03-11T23:52:07.000Z","payload":{"id":"019ce0d1-2189-7980-bde2-9b5c5028916a","cwd":"/Users/testuser/project","git":{"branch":"main","commit_hash":"abc123","repository_url":"git@github.com:testuser/project.git"},"cli_version":"0.108.0","model_provider":"openai","originator":"Codex CLI","source":"vscode"}}
 {"type":"turn_context","timestamp":"2026-03-11T23:52:08.000Z","payload":{"model":"gpt-5.3-codex","cwd":"/Users/testuser/project","effort":"high"}}
 {"type":"response_item","timestamp":"2026-03-11T23:52:09.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"List the files."}]}}
+{"type":"event_msg","timestamp":"2026-03-11T23:52:09.500Z","payload":{"type":"user_message","message":"List the files.","kind":"plain"}}
 {"type":"response_item","timestamp":"2026-03-11T23:52:10.000Z","payload":{"type":"reasoning","summary":[{"type":"text","text":"I should run ls."}],"content":[]}}
 {"type":"response_item","timestamp":"2026-03-11T23:52:11.000Z","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}","call_id":"call_abc"}}
 {"type":"response_item","timestamp":"2026-03-11T23:52:12.000Z","payload":{"type":"function_call_output","call_id":"call_abc","output":"hello.py\nREADME.md"}}
 {"type":"response_item","timestamp":"2026-03-11T23:52:13.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"There are two files: hello.py and README.md."}]}}
+{"type":"event_msg","timestamp":"2026-03-11T23:52:13.500Z","payload":{"type":"agent_message","message":"There are two files: hello.py and README.md."}}
 {"type":"event_msg","timestamp":"2026-03-11T23:52:14.000Z","payload":{"type":"token_count","info":{"total_tokens":1234}}}
