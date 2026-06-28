@@ -513,7 +513,10 @@ impl Conversations {
                     {
                         event_msg_fallback.push(row);
                     } else {
-                        if parsed.line_type == "response_item" && row.message_type == "message" {
+                        if parsed.line_type == "response_item"
+                            && parsed.payload.get("type").and_then(|v| v.as_str())
+                                == Some("message")
+                        {
                             has_response_message = true;
                         }
                         rows.push(row);
@@ -575,12 +578,24 @@ impl Conversations {
                 let item: CodexResponseItem =
                     serde_json::from_value(parsed.payload.clone()).ok()?;
                 match item.item_type.as_deref() {
-                    Some("message") => Some(ConversationRow {
-                        message_type: "message".to_string(),
-                        message_role: item.role.clone(),
-                        message_content: item.content.as_ref().map(utils::extract_text_content),
-                        ..base
-                    }),
+                    Some("message") => {
+                        // Normalize to a role-specific type (user/assistant/...)
+                        // like the other providers, so cross-source filters on
+                        // message_type work; fall back to the raw role.
+                        let role = item.role.clone();
+                        let message_type = match role.as_deref() {
+                            Some("user") => "user".to_string(),
+                            Some("assistant") => "assistant".to_string(),
+                            Some(other) => other.to_string(),
+                            None => "message".to_string(),
+                        };
+                        Some(ConversationRow {
+                            message_type,
+                            message_role: role,
+                            message_content: item.content.as_ref().map(utils::extract_text_content),
+                            ..base
+                        })
+                    }
                     Some("reasoning") => Some(ConversationRow {
                         message_type: "reasoning".to_string(),
                         message_role: Some("assistant".to_string()),
