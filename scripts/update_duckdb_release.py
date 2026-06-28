@@ -293,6 +293,26 @@ def check_target(target: ReleaseTarget) -> list[str]:
     return mismatches
 
 
+def consistency_mismatches() -> list[str]:
+    """Check that the version pinned in duckdb-release.toml is applied consistently.
+
+    Uses the metadata file as the source of truth and verifies every other file matches
+    it. Unlike the latest-release check, this performs no network calls and does not care
+    whether the pinned version is behind the newest upstream DuckDB release.
+    """
+    target = read_metadata()
+    current = parse_current_files()
+    expected = expected_values(target)
+    mismatches: list[str] = []
+    for key, expected_value in expected.items():
+        if key.startswith("metadata."):
+            continue
+        current_value = current.get(key)
+        if current_value != expected_value:
+            mismatches.append(f"{key}: current={current_value!r} expected={expected_value!r}")
+    return mismatches
+
+
 def resolve_target(duckdb_version: str | None) -> ReleaseTarget:
     version = duckdb_version or latest_duckdb_release()
     bare_version = version.removeprefix("v")
@@ -311,13 +331,35 @@ def main() -> int:
     parser.add_argument("--check", action="store_true", help="Check configured versions for drift")
     parser.add_argument("--apply", action="store_true", help="Apply the resolved version to local files")
     parser.add_argument(
+        "--check-consistency",
+        action="store_true",
+        help=(
+            "Check that the version pinned in duckdb-release.toml is applied consistently "
+            "across all files, without contacting the network or the latest upstream release"
+        ),
+    )
+    parser.add_argument(
         "--no-lockfile-update",
         action="store_true",
         help="Do not run cargo update after editing Cargo.toml",
     )
     args = parser.parse_args()
-    if args.check == args.apply:
-        parser.error("choose exactly one of --check or --apply")
+    selected = sum(bool(flag) for flag in (args.check, args.apply, args.check_consistency))
+    if selected != 1:
+        parser.error("choose exactly one of --check, --apply or --check-consistency")
+
+    if args.check_consistency:
+        mismatches = consistency_mismatches()
+        if mismatches:
+            print("DuckDB release configuration is inconsistent with duckdb-release.toml:")
+            for mismatch in mismatches:
+                print(f"- {mismatch}")
+            return EXIT_ERROR
+        print(
+            "DuckDB release configuration is internally consistent: "
+            f"{read_metadata().duckdb_version}"
+        )
+        return EXIT_CURRENT
 
     target = resolve_target(args.duckdb_version)
     if args.apply:
