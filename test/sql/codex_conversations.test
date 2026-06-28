@@ -7,15 +7,16 @@ require agent_data
 # ============================================================
 # Row counts — session_meta + turn_context + token_count are NOT rows.
 # The fixture mirrors real Codex: each user/assistant turn is stored twice, in
-# both response_item/message and event_msg/{user,agent}_message. The parser
-# currently emits both streams, so the 5 response_item rows are joined by 2
-# duplicate event_msg rows = 7.
+# both response_item/message and event_msg/{user,agent}_message. The event_msg
+# copies are a fallback for sessions that lack response_item rows, so when the
+# canonical response_item rows exist they must be the single source of truth.
+# Conversation rows: 2 messages + 1 reasoning + 1 function_call + 1 output = 5
 # ============================================================
 
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex');
 ----
-7
+5
 
 query I
 SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_codex');
@@ -41,7 +42,7 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE source != 
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex', source='codex');
 ----
-7
+5
 
 # ============================================================
 # Message types
@@ -51,42 +52,39 @@ query II
 SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
 GROUP BY message_type ORDER BY message_type;
 ----
-assistant	1
 function_call	1
 function_call_output	1
 message	2
 reasoning	1
-user	1
 
 # Roles: user/assistant messages, tool for function_*
 query II
 SELECT message_role, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
 GROUP BY message_role ORDER BY message_role;
 ----
-assistant	3
+assistant	2
 tool	2
-user	2
+user	1
 
 # ============================================================
 # A user/assistant turn is stored twice by Codex (response_item/message and
 # event_msg/{user,agent}_message) but must be counted once.
 # ============================================================
 
-# The user's text currently appears on both the response_item row and the
-# duplicate event_msg/user_message row.
+# The user's text must appear only on the canonical response_item row.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
 WHERE message_content = 'List the files.';
 ----
-2
+1
 
-# event_msg user/agent rows currently surface as message_type user/assistant,
-# duplicating the canonical response_item/message rows.
+# event_msg user/agent copies must not surface as separate user/assistant rows
+# when canonical response_item/message rows exist.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
 WHERE message_type IN ('user', 'assistant');
 ----
-2
+0
 
 # ============================================================
 # Per-line timestamp present on every row (Codex strength)

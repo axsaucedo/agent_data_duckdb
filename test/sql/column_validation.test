@@ -205,7 +205,7 @@ copilot	53
 query II
 SELECT source, COUNT(*) FROM read_conversations(path='test/data_codex') GROUP BY source ORDER BY source;
 ----
-codex	7
+codex	5
 
 # GROUP BY message_type on Claude produces 4 groups
 query I
