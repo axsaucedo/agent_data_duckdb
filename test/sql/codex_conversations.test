@@ -67,6 +67,31 @@ tool	2
 user	1
 
 # ============================================================
+# Chat turn normalization — message_type should distinguish user vs assistant
+# like every other provider, not collapse both into a literal 'message'.
+# ============================================================
+
+# Both chat turns currently surface under the generic 'message' type.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'message';
+----
+2
+
+# Filtering by the cross-source 'user' type currently misses Codex turns.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'user';
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'assistant';
+----
+0
+
+# ============================================================
 # A user/assistant turn is stored twice by Codex (response_item/message and
 # event_msg/{user,agent}_message) but must be counted once.
 # ============================================================
