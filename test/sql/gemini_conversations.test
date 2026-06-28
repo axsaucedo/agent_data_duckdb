@@ -143,7 +143,7 @@ WHERE message_type IN ('info', 'error') AND message_role IS NOT NULL;
 0
 
 # ============================================================
-# Tool calls (one tool_call row per call, plus inline on the assistant row)
+# Tool calls (one tool_call row per call)
 # ============================================================
 
 # 3 tool_call rows: 2 from the first assistant turn, 1 from the second

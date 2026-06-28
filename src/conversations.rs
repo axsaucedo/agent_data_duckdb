@@ -499,15 +499,11 @@ impl Conversations {
                     row.cache_read_tokens = tokens.cached;
                 }
 
-                // Surface the first tool call inline on the assistant row (mirrors
-                // Claude/Copilot), then emit one dedicated `tool_call` row per call
-                // so multi-tool turns are not collapsed.
+                // Every tool call is emitted as its own dedicated `tool_call` row
+                // below, so the assistant row deliberately leaves the tool_* fields
+                // unset. This keeps each invocation represented exactly once and
+                // avoids double-counting the first call in tool-usage aggregates.
                 let tool_calls = msg.tool_calls.as_deref().unwrap_or(&[]);
-                if let Some(first) = tool_calls.first() {
-                    row.tool_name = first.name.clone();
-                    row.tool_use_id = first.id.clone();
-                    row.tool_input = first.args.as_ref().map(|a| a.to_string());
-                }
                 rows.push(row);
 
                 for tc in tool_calls {
