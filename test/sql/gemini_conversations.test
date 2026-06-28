@@ -175,34 +175,33 @@ WHERE tool_name IS NOT NULL;
 3
 
 # ============================================================
-# Tool call aggregation (current behaviour: first call duplicated)
+# Tool call aggregation (one row per call, no inline duplication)
 # ============================================================
 
-# Each assistant turn surfaces its first tool call inline, so assistant rows
-# also carry tool_* fields (2 assistant turns with tool calls).
+# Assistant rows do not carry tool_* fields; every tool call is represented
+# solely by its dedicated tool_call row.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
 WHERE message_type = 'assistant' AND tool_name IS NOT NULL;
 ----
-2
+0
 
-# tool_name therefore appears on 5 rows: 3 dedicated tool_call rows plus the 2
-# inline copies on the assistant rows.
+# tool_name appears exactly once per call (3 calls = 3 rows), so an unfiltered
+# tool-usage aggregate is not inflated.
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
 WHERE tool_name IS NOT NULL;
 ----
-5
+3
 
-# The first tool of each turn is counted twice (inline + dedicated row): both
-# run_shell_command and write_file report 2 uses for a single invocation.
+# Each invoked tool is counted once across all rows (no first-call double count).
 query II
 SELECT tool_name, COUNT(*) AS uses FROM read_conversations(path='test/data_gemini')
 WHERE tool_name IS NOT NULL GROUP BY tool_name ORDER BY tool_name;
 ----
 read_file	1
-run_shell_command	2
-write_file	2
+run_shell_command	1
+write_file	1
 
 # ============================================================
 # is_agent flag (kind == 'subagent')
