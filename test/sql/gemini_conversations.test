@@ -1,0 +1,303 @@
+# name: test/sql/gemini_conversations.test
+# description: comprehensive tests for Gemini CLI conversation loading
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts
+# ============================================================
+
+# 6 main-session messages (alpha) expand to 9 rows: the two assistant turns
+# carry 2 and 1 tool calls, each emitted as an extra tool_call row. The subagent
+# session (beta01) contributes 2 rows. 9 + 2 = 11.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini');
+----
+11
+
+# 2 distinct sessions
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_gemini');
+----
+2
+
+# 2 chat files discovered (one per project dir)
+query I
+SELECT COUNT(DISTINCT file_name) FROM read_conversations(path='test/data_gemini');
+----
+2
+
+# ============================================================
+# Source column + auto-detection
+# ============================================================
+
+# All rows have source = 'gemini'
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE source != 'gemini';
+----
+0
+
+# Auto-detection (tmp/ dir + installation_id marker) resolves to gemini with no
+# explicit source argument.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE source = 'gemini';
+----
+11
+
+# Explicit source='gemini' returns the same count
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini', source='gemini');
+----
+11
+
+# ============================================================
+# Session breakdown (pinned per-session counts)
+# ============================================================
+
+query II
+SELECT session_id, COUNT(*) AS cnt FROM read_conversations(path='test/data_gemini')
+GROUP BY session_id ORDER BY session_id;
+----
+11111111-1111-1111-1111-111111111111	9
+22222222-2222-2222-2222-222222222222	2
+
+# ============================================================
+# Message types (pinned counts)
+# ============================================================
+
+query I
+SELECT COUNT(DISTINCT message_type) FROM read_conversations(path='test/data_gemini');
+----
+5
+
+query II
+SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_gemini')
+GROUP BY message_type ORDER BY message_type;
+----
+assistant	3
+error	1
+info	1
+tool_call	3
+user	3
+
+# ============================================================
+# Column NOT NULL invariants
+# ============================================================
+
+# session_id never NULL or empty
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE session_id IS NULL OR session_id = '';
+----
+0
+
+# message_type never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE message_type IS NULL;
+----
+0
+
+# timestamp always present (per-message, falling back to session startTime)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE timestamp IS NULL;
+----
+0
+
+# uuid always present (Gemini gives every message and tool call an id)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE uuid IS NULL;
+----
+0
+
+# ============================================================
+# Role mapping
+# ============================================================
+
+# User messages have role=user
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'user' AND message_role != 'user';
+----
+0
+
+# gemini messages map to message_type=assistant, role=assistant
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'assistant' AND message_role != 'assistant';
+----
+0
+
+# tool_call rows have role=tool
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'tool_call' AND message_role != 'tool';
+----
+0
+
+# info and error events have NULL role
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type IN ('info', 'error') AND message_role IS NOT NULL;
+----
+0
+
+# ============================================================
+# Tool calls (one tool_call row per call)
+# ============================================================
+
+# 3 tool_call rows: 2 from the first assistant turn, 1 from the second
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE message_type = 'tool_call';
+----
+3
+
+# Every tool_call row carries tool_name, tool_use_id, and tool_input
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'tool_call'
+AND (tool_name IS NULL OR tool_use_id IS NULL OR tool_input IS NULL);
+----
+0
+
+# Each tool_call row links back to its assistant message via parent_uuid
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'tool_call' AND parent_uuid IS NULL;
+----
+0
+
+# 3 distinct tool names exercised (run_shell_command, read_file, write_file)
+query I
+SELECT COUNT(DISTINCT tool_name) FROM read_conversations(path='test/data_gemini')
+WHERE tool_name IS NOT NULL;
+----
+3
+
+# ============================================================
+# Tool call aggregation (one row per call, no inline duplication)
+# ============================================================
+
+# Assistant rows do not carry tool_* fields; every tool call is represented
+# solely by its dedicated tool_call row.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'assistant' AND tool_name IS NOT NULL;
+----
+0
+
+# tool_name appears exactly once per call (3 calls = 3 rows), so an unfiltered
+# tool-usage aggregate is not inflated.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE tool_name IS NOT NULL;
+----
+3
+
+# Each invoked tool is counted once across all rows (no first-call double count).
+query II
+SELECT tool_name, COUNT(*) AS uses FROM read_conversations(path='test/data_gemini')
+WHERE tool_name IS NOT NULL GROUP BY tool_name ORDER BY tool_name;
+----
+read_file	1
+run_shell_command	1
+write_file	1
+
+# ============================================================
+# is_agent flag (kind == 'subagent')
+# ============================================================
+
+# The subagent session (kind='subagent') flags its 2 rows is_agent = true
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE is_agent = true;
+----
+2
+
+# The subagent rows all belong to the subagent session
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE is_agent = true AND session_id = '22222222-2222-2222-2222-222222222222';
+----
+2
+
+# Main-session (kind='main') rows are not flagged as agent rows
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE is_agent = false;
+----
+9
+
+# ============================================================
+# Project path resolution via projects.json alias map
+# ============================================================
+
+# The 'alpha' project hash resolves to its real path through projects.json
+query I
+SELECT DISTINCT project_path FROM read_conversations(path='test/data_gemini')
+WHERE project_dir = 'alpha';
+----
+/Users/testuser/project-alpha
+
+# A project hash with no alias leaves project_path empty (opaque SHA-256 of cwd)
+query I
+SELECT DISTINCT project_path FROM read_conversations(path='test/data_gemini')
+WHERE project_dir = 'beta01';
+----
+(empty)
+
+# ============================================================
+# Metadata: model + token accounting
+# ============================================================
+
+# 3 distinct models across the fixtures
+query I
+SELECT COUNT(DISTINCT model) FROM read_conversations(path='test/data_gemini')
+WHERE model IS NOT NULL;
+----
+3
+
+# Each assistant turn carries token accounting
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE message_type = 'assistant' AND input_tokens IS NULL;
+----
+0
+
+# Gemini 'cached' tokens map to cache_read_tokens
+query I
+SELECT SUM(cache_read_tokens) FROM read_conversations(path='test/data_gemini');
+----
+12000
+
+# ============================================================
+# Gemini gaps: slug / git_branch / repository are always NULL
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini')
+WHERE slug IS NOT NULL OR git_branch IS NOT NULL OR repository IS NOT NULL;
+----
+0
+
+# ============================================================
+# No parse errors
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_gemini') WHERE message_type = '_parse_error';
+----
+0
+
+# ============================================================
+# Line number per-file invariant
+# ============================================================
+
+# Every file starts at message ordinal 1
+query I
+SELECT COUNT(*) FROM (
+    SELECT file_name, MIN(line_number) AS min_ln
+    FROM read_conversations(path='test/data_gemini')
+    GROUP BY file_name
+    HAVING min_ln != 1
+);
+----
+0

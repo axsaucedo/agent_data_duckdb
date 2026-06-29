@@ -1,0 +1,31 @@
+{
+  "sessionId": "22222222-2222-2222-2222-222222222222",
+  "projectHash": "beta01",
+  "startTime": "2026-01-01T00:00:10.000Z",
+  "lastUpdated": "2026-01-01T00:00:20.000Z",
+  "kind": "subagent",
+  "summary": "Subagent session beta01",
+  "messages": [
+    {
+      "id": "msg-b-0001",
+      "timestamp": "2026-01-01T00:00:11.000Z",
+      "type": "user",
+      "content": "Subagent: summarize the diff."
+    },
+    {
+      "id": "msg-b-0002",
+      "timestamp": "2026-01-01T00:00:12.000Z",
+      "type": "gemini",
+      "content": "The diff adds a Gemini provider.",
+      "model": "gemini-2.5-pro-exp",
+      "tokens": {
+        "input": 600,
+        "output": 90,
+        "cached": 3000,
+        "thoughts": 0,
+        "tool": 0,
+        "total": 690
+      }
+    }
+  ]
+}

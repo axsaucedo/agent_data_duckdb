@@ -461,3 +461,121 @@ pub fn epoch_ms_to_iso(ms: i64) -> String {
         year, m, d, hh, mm, ss
     )
 }
+
+// ─── Codex Discovery Functions ───
+
+/// Discover Codex rollout-*.jsonl transcripts under sessions/YYYY/MM/DD/.
+/// Returns (session_uuid, file_path) tuples sorted by path.
+pub fn discover_codex_rollout_files(base_path: &Path) -> Vec<(String, PathBuf)> {
+    let sessions_dir = base_path.join("sessions");
+    let mut results = Vec::new();
+    if !sessions_dir.is_dir() {
+        return results;
+    }
+    walk_codex(&sessions_dir, &mut results);
+    results.sort_by(|a, b| a.1.cmp(&b.1));
+    results
+}
+
+fn walk_codex(dir: &Path, out: &mut Vec<(String, PathBuf)>) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return,
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            walk_codex(&path, out);
+        } else {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with("rollout-") && name.ends_with(".jsonl") {
+                // session uuid is the trailing UUID (5 hyphen-delimited groups)
+                // before `.jsonl`.
+                let stem = name.strip_suffix(".jsonl").unwrap_or(&name);
+                let session_uuid = stem
+                    .rsplit('-')
+                    .take(5)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>()
+                    .join("-");
+                out.push((session_uuid, path));
+            }
+        }
+    }
+}
+
+// ─── Gemini Discovery Functions ───
+
+/// Discover all Gemini CLI chat session files.
+/// Layout: `tmp/<project-hash>/chats/session-<ts>-<id>.json`. The `<project-hash>`
+/// folder may be a SHA-256 of the project path or a short human-readable alias
+/// (mapped in `projects.json`).
+/// Returns (project_hash, file_path) tuples sorted deterministically by
+/// project-hash then file name.
+pub fn discover_gemini_chat_files(base_path: &Path) -> Vec<(String, PathBuf)> {
+    let tmp_dir = base_path.join("tmp");
+    let mut results = Vec::new();
+
+    if !tmp_dir.is_dir() {
+        return results;
+    }
+
+    let mut project_dirs: Vec<_> = std::fs::read_dir(&tmp_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    project_dirs.sort_by_key(|e| e.file_name());
+
+    for project_entry in project_dirs {
+        let project_hash = project_entry.file_name().to_string_lossy().to_string();
+        let chats_dir = project_entry.path().join("chats");
+        if !chats_dir.is_dir() {
+            continue;
+        }
+
+        let mut json_files: Vec<_> = std::fs::read_dir(&chats_dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.starts_with("session-") && name.ends_with(".json")
+            })
+            .collect();
+        json_files.sort_by_key(|e| e.file_name());
+
+        for f in json_files {
+            results.push((project_hash.clone(), f.path()));
+        }
+    }
+    results
+}
+
+/// Resolve a Gemini project hash to its real filesystem path using the
+/// `projects.json` alias map (`{ "projects": { "<abs-path>": "<alias>" } }`).
+/// Hashes that are SHA-256 of an unknown path (no alias) return `None`.
+pub fn read_gemini_project_map(base_path: &Path) -> std::collections::HashMap<String, String> {
+    let mut map = std::collections::HashMap::new();
+    let path = base_path.join("projects.json");
+    let content = match std::fs::read_to_string(&path) {
+        Ok(c) => c,
+        Err(_) => return map,
+    };
+    let value: serde_json::Value = match serde_json::from_str(&content) {
+        Ok(v) => v,
+        Err(_) => return map,
+    };
+    if let Some(projects) = value.get("projects").and_then(|p| p.as_object()) {
+        for (abs_path, alias) in projects {
+            if let Some(alias) = alias.as_str() {
+                // Map alias → absolute path so a project_hash alias resolves back.
+                map.insert(alias.to_string(), abs_path.clone());
+            }
+        }
+    }
+    map
+}

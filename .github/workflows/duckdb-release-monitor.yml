@@ -27,6 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
       - uses: astral-sh/setup-uv@v5
 
@@ -54,9 +56,17 @@ jobs:
               ;;
           esac
 
-      - name: Fail pull request on release drift or check error
-        if: steps.drift.outputs.status != 'current' && github.event_name == 'pull_request'
+      - name: Warn on DuckDB release drift (pull request)
+        if: steps.drift.outputs.status == 'drift' && github.event_name == 'pull_request'
+        run: echo "::warning::DuckDB is ahead of the pinned release; the scheduled monitor will open an update PR. This is informational and does not block this PR."
+
+      - name: Fail pull request on check error
+        if: steps.drift.outputs.status == 'error' && github.event_name == 'pull_request'
         run: exit 1
+
+      - name: Verify release config consistency (pull request)
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/update_duckdb_release.py --check-consistency
 
       - name: Apply DuckDB release update
         if: steps.drift.outputs.status == 'drift' && github.event_name != 'pull_request'

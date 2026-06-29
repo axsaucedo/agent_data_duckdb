@@ -1,0 +1,243 @@
+# name: test/sql/codex_conversations.test
+# description: comprehensive tests for Codex (rollout JSONL) conversation loading
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts — session_meta + turn_context + token_count are NOT rows.
+# The fixture mirrors real Codex: each user/assistant turn is stored twice, in
+# both response_item/message and event_msg/{user,agent}_message. The event_msg
+# copies are a fallback for sessions that lack response_item rows, so when the
+# canonical response_item rows exist they must be the single source of truth.
+# Conversation rows: 2 messages + 1 reasoning + 1 function_call + 1 output = 5
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex');
+----
+5
+
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_codex');
+----
+1
+
+# session_id derived from rollout filename / session_meta.id
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE session_id != '019ce0d1-2189-7980-bde2-9b5c5028916a';
+----
+0
+
+# ============================================================
+# Source
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE source != 'codex';
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex', source='codex');
+----
+5
+
+# ============================================================
+# Message types
+# ============================================================
+
+query II
+SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
+GROUP BY message_type ORDER BY message_type;
+----
+assistant	1
+function_call	1
+function_call_output	1
+reasoning	1
+user	1
+
+# Roles: user/assistant messages, tool for function_*
+query II
+SELECT message_role, COUNT(*) AS cnt FROM read_conversations(path='test/data_codex')
+GROUP BY message_role ORDER BY message_role;
+----
+assistant	2
+tool	2
+user	1
+
+# ============================================================
+# Chat turn normalization — message_type should distinguish user vs assistant
+# like every other provider, not collapse both into a literal 'message'.
+# ============================================================
+
+# Both chat turns are normalized to their role-specific type, so the generic
+# 'message' type is no longer used.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'message';
+----
+0
+
+# Filtering by the cross-source 'user' type now matches the Codex user turn.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'user';
+----
+1
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'assistant';
+----
+1
+
+# ============================================================
+# A user/assistant turn is stored twice by Codex (response_item/message and
+# event_msg/{user,agent}_message) but must be counted once.
+# ============================================================
+
+# The user's text must appear only on the canonical response_item row.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_content = 'List the files.';
+----
+1
+
+# Exactly the two canonical response_item turns surface as user/assistant; the
+# event_msg copies are not added on top.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE message_type IN ('user', 'assistant');
+----
+2
+
+# ============================================================
+# Per-line timestamp present on every row (Codex strength)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE timestamp IS NULL;
+----
+0
+
+# ============================================================
+# Session metadata carried forward to every row
+# ============================================================
+
+# model from turn_context
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE model != 'gpt-5.3-codex';
+----
+0
+
+# git_branch / cwd / version / repository from session_meta
+query IIII
+SELECT DISTINCT git_branch, cwd, version, repository FROM read_conversations(path='test/data_codex');
+----
+main	/Users/testuser/project	0.108.0	git@github.com:testuser/project.git
+
+# ============================================================
+# Tool fields
+# ============================================================
+
+query III
+SELECT tool_name, tool_use_id, (tool_input IS NOT NULL) AS has_input
+FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'function_call';
+----
+shell	call_abc	true
+
+# function_call_output links to the same call_id
+query I
+SELECT tool_use_id FROM read_conversations(path='test/data_codex')
+WHERE message_type = 'function_call_output';
+----
+call_abc
+
+# ============================================================
+# uuid / slug are NULL for Codex
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE uuid IS NOT NULL OR slug IS NOT NULL;
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE message_type = '_parse_error';
+----
+0
+
+# ============================================================
+# Column NOT NULL invariants
+# ============================================================
+
+# source never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE source IS NULL;
+----
+0
+
+# session_id never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE session_id IS NULL;
+----
+0
+
+# file_name never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE file_name IS NULL;
+----
+0
+
+# message_type never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE message_type IS NULL;
+----
+0
+
+# line_number never NULL and always >= 1
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex') WHERE line_number IS NULL OR line_number < 1;
+----
+0
+
+# ============================================================
+# Timestamp validation (per-line ISO 8601, Codex strength)
+# ============================================================
+
+# All timestamps follow ISO 8601
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_codex')
+WHERE timestamp IS NOT NULL
+AND timestamp NOT SIMILAR TO '[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}.*';
+----
+0
+
+# ============================================================
+# Other tables return empty for Codex
+# (conversation data lives only in the rollout JSONL stream)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_codex');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_todos(path='test/data_codex');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_history(path='test/data_codex');
+----
+0
+
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_codex');
+----
+0
