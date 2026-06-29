@@ -116,7 +116,7 @@ All functions accept two optional parameters:
 
 Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, or `'cursor'`) as the first column.
 
-> **Cursor** support is gated behind the default-on `cursor` cargo feature, which pulls in a bundled SQLite reader to read `state.vscdb`. Build with `--no-default-features` to drop it. Only `read_conversations()` is implemented for Cursor; the other tables return no rows for `source='cursor'`.
+> **Cursor** support is gated behind the default-on `cursor` cargo feature. It reads `state.vscdb` with a self-contained, pure-Rust, read-only SQLite reader (`src/vscdb.rs`) — no external dependency and no bundled C SQLite, so every target arch (including `windows_amd64_mingw`) builds with negligible size overhead. Build with `--no-default-features` to drop it. Only `read_conversations()` is implemented for Cursor; the other tables return no rows for `source='cursor'`.
 
 ### `read_conversations([path (opt)], [source (opt)])`
 

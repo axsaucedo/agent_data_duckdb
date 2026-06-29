@@ -427,60 +427,55 @@ impl Conversations {
 //
 // Cursor stores chat in a SQLite KV store (state.vscdb). `composerData:<id>` rows
 // are conversations; `bubbleId:<composerId>:<bubbleId>` rows are messages. Order
-// within a composer comes from its `fullConversationHeadersOnly` array. This
-// loader requires the `rusqlite` dependency, gated behind the default-on `cursor`
-// cargo feature. Parsing is defensive: missing keys/rows are tolerated and never
-// panic (every field falls back to NULL via `..Default::default()`).
+// within a composer comes from its `fullConversationHeadersOnly` array.
+//
+// The `state.vscdb` SQLite file is read with a self-contained, pure-Rust,
+// read-only reader (`crate::vscdb`) — no external SQLite dependency. The whole
+// path is gated behind the default-on `cursor` cargo feature. Parsing is
+// defensive: missing keys/rows are tolerated and never panic (every field falls
+// back to NULL via `..Default::default()`).
 
 #[cfg(feature = "cursor")]
 impl Conversations {
     fn load_cursor_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        use crate::vscdb::VscDb;
+
         let db_path = if base_path.extension().map_or(false, |e| e == "vscdb") {
             base_path.to_path_buf()
         } else {
             base_path.join("state.vscdb")
         };
 
-        let conn = match rusqlite::Connection::open_with_flags(
-            &db_path,
-            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-        ) {
-            Ok(c) => c,
-            Err(_) => return Vec::new(),
+        let db = match VscDb::open(&db_path) {
+            Some(db) => db,
+            None => return Vec::new(),
         };
 
-        // 1. Load all composers (sessions) into a lookup.
+        // Single scan of the cursorDiskKV table; split the rows by key prefix.
+        // (Equivalent to the two `key LIKE 'composerData:%' / 'bubbleId:%'`
+        // queries the bundled-SQLite version used to run.)
         let mut composers: std::collections::HashMap<String, CursorComposer> =
             std::collections::HashMap::new();
-        if let Ok(mut stmt) =
-            conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'composerData:%'")
-        {
-            let iter = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)));
-            if let Ok(iter) = iter {
-                for row in iter.flatten() {
-                    if let Ok(c) = serde_json::from_str::<CursorComposer>(&row.1) {
-                        let id = row.0.trim_start_matches("composerData:").to_string();
-                        composers.insert(id, c);
-                    }
-                }
-            }
-        }
-
-        // 2. Load all bubbles into a lookup keyed by (composerId, bubbleId).
         let mut bubbles: std::collections::HashMap<(String, String), CursorBubble> =
             std::collections::HashMap::new();
-        if let Ok(mut stmt) =
-            conn.prepare("SELECT key, value FROM cursorDiskKV WHERE key LIKE 'bubbleId:%'")
-        {
-            let iter = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)));
-            if let Ok(iter) = iter {
-                for row in iter.flatten() {
-                    // key = bubbleId:<composerId>:<bubbleId>
-                    let parts: Vec<&str> = row.0.splitn(3, ':').collect();
-                    if parts.len() == 3 {
-                        if let Ok(b) = serde_json::from_str::<CursorBubble>(&row.1) {
-                            bubbles.insert((parts[1].to_string(), parts[2].to_string()), b);
-                        }
+
+        for row in db.read_table("cursorDiskKV") {
+            let key = match std::str::from_utf8(&row.key) {
+                Ok(k) => k,
+                Err(_) => continue,
+            };
+            if let Some(id) = key.strip_prefix("composerData:") {
+                // 1. composers (sessions)
+                if let Ok(c) = serde_json::from_slice::<CursorComposer>(&row.value) {
+                    composers.insert(id.to_string(), c);
+                }
+            } else if key.starts_with("bubbleId:") {
+                // 2. bubbles, keyed by (composerId, bubbleId)
+                //    key = bubbleId:<composerId>:<bubbleId>
+                let parts: Vec<&str> = key.splitn(3, ':').collect();
+                if parts.len() == 3 {
+                    if let Ok(b) = serde_json::from_slice::<CursorBubble>(&row.value) {
+                        bubbles.insert((parts[1].to_string(), parts[2].to_string()), b);
                     }
                 }
             }

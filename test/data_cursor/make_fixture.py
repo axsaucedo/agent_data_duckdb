@@ -70,11 +70,20 @@ bubble_assistant = {
 
 
 def main() -> None:
-    if os.path.exists(DB_PATH):
-        os.remove(DB_PATH)
+    # Remove any prior db and its WAL/SHM sidecars.
+    for suffix in ("", "-wal", "-shm"):
+        p = DB_PATH + suffix
+        if os.path.exists(p):
+            os.remove(p)
     conn = sqlite3.connect(DB_PATH)
     try:
         cur = conn.cursor()
+        # Real Cursor state.vscdb files are WAL-mode, which would split committed
+        # rows between the main file and a `-wal` sidecar. The pure-Rust reader
+        # (src/vscdb.rs) reads only the main database file, so force DELETE
+        # journal mode here: every row lands in state.vscdb itself and the test
+        # fixture is fully self-contained and deterministic (no -wal needed).
+        cur.execute("PRAGMA journal_mode=DELETE")
         # Mirror the two tables Cursor's globalStorage state.vscdb actually has.
         cur.execute("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)")
         cur.execute("CREATE TABLE cursorDiskKV (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB)")
@@ -88,6 +97,9 @@ def main() -> None:
             ("checkpointId:bar", json.dumps({"unused": True})),
         ]
         cur.executemany("INSERT INTO cursorDiskKV (key, value) VALUES (?, ?)", rows)
+        conn.commit()
+        # Defensive: ensure no WAL frames linger even if a future edit flips mode.
+        cur.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         conn.commit()
     finally:
         conn.close()
