@@ -6,6 +6,8 @@ mod stats;
 mod todos;
 mod types;
 mod utils;
+#[cfg(feature = "cursor")]
+mod vscdb;
 mod vtab;
 
 use duckdb::{duckdb_entrypoint_c_api, Connection, Result};

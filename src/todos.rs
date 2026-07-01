@@ -129,12 +129,15 @@ impl TableFunc for Todos {
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
-            // Claude Desktop has no top-level todos/ directory; Codex todo
-            // extraction (update_plan tool calls) is deferred and Gemini todos
-            // live inline as write_todos tool calls. Return empty.
-            Provider::ClaudeDesktop | Provider::Codex | Provider::Gemini | Provider::Unknown => {
-                Vec::new()
-            }
+            // Claude Desktop has no top-level todos/ directory. Cursor todos live
+            // in composerData.todos (extraction deferred, see PR); Codex todo
+            // extraction (update_plan tool calls) is deferred; Gemini todos live
+            // inline as write_todos tool calls. Return empty.
+            Provider::ClaudeDesktop
+            | Provider::Cursor
+            | Provider::Codex
+            | Provider::Gemini
+            | Provider::Unknown => Vec::new(),
         }
     }
 

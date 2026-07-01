@@ -6,6 +6,7 @@ pub enum Provider {
     Claude,
     ClaudeDesktop,
     Copilot,
+    Cursor,
     Codex,
     Gemini,
     Unknown,
@@ -15,6 +16,7 @@ pub enum Provider {
 /// - `local-agent-mode-sessions/` directory → Claude Desktop
 /// - `projects/` directory → Claude
 /// - `session-state/` directory → Copilot
+/// - `state.vscdb` file (passed directly or found in the directory) → Cursor
 /// - `sessions/` with `YYYY/` date partitions (rollout files) → Codex
 /// - `tmp/` directory + `installation_id` file → Gemini CLI (`~/.gemini`)
 pub fn detect_provider(path: &Path) -> Provider {
@@ -26,6 +28,10 @@ pub fn detect_provider(path: &Path) -> Provider {
     }
     if path.join("session-state").is_dir() {
         return Provider::Copilot;
+    }
+    // Cursor: the vscdb file may be passed directly, or its parent directory.
+    if path.extension().map_or(false, |e| e == "vscdb") || path.join("state.vscdb").is_file() {
+        return Provider::Cursor;
     }
     // Codex partitions transcripts by date: sessions/YYYY/MM/DD/rollout-*.jsonl.
     let sessions = path.join("sessions");
@@ -60,6 +66,7 @@ pub fn parse_source(source: &str) -> Provider {
         "claude" => Provider::Claude,
         "claude-desktop" => Provider::ClaudeDesktop,
         "copilot" => Provider::Copilot,
+        "cursor" => Provider::Cursor,
         "codex" => Provider::Codex,
         "gemini" => Provider::Gemini,
         _ => Provider::Unknown,
