@@ -66,7 +66,11 @@ impl VscDb {
     /// Open and slurp a SQLite file. Returns `None` if the file is missing or
     /// not a recognisable SQLite database (caller falls back to "no rows").
     pub fn open(path: &Path) -> Option<Self> {
-        let data = fs::read(path).ok()?;
+        Self::from_bytes(fs::read(path).ok()?)
+    }
+
+    /// Validate a SQLite header off an in-memory buffer and derive page geometry.
+    fn from_bytes(data: Vec<u8>) -> Option<Self> {
         if data.len() < HEADER_SIZE || &data[..16] != b"SQLite format 3\0" {
             return None;
         }
@@ -495,6 +499,13 @@ mod tests {
             .join("state.vscdb")
     }
 
+    fn large_fixture() -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("test")
+            .join("data_cursor")
+            .join("state_large.vscdb")
+    }
+
     #[test]
     fn varint_roundtrip_basics() {
         assert_eq!(read_varint(&[0x00], 0), Some((0, 1)));
@@ -545,5 +556,62 @@ mod tests {
     #[test]
     fn missing_file_returns_none() {
         assert!(VscDb::open(Path::new("/nonexistent/state.vscdb")).is_none());
+    }
+
+    #[test]
+    fn reads_large_fixture_interior_pages_and_overflow() {
+        // The large fixture's cursorDiskKV b-tree has an interior root page and a
+        // ~100 KB value that spills across overflow pages (verified by the fixture
+        // generator). This asserts the reader traverses every leaf under the
+        // interior page and reassembles the overflow chain byte-for-byte.
+        let db = VscDb::open(&large_fixture()).expect("large fixture opens");
+        let rows = db.read_table("cursorDiskKV");
+
+        // 1 composer + 300 bubbles: proves interior-page traversal reads all
+        // leaf pages, not just the first.
+        assert_eq!(rows.len(), 301, "expected 1 composer + 300 bubble rows");
+
+        // The oversized bubble round-trips byte-exact through the overflow chain.
+        let big = rows
+            .iter()
+            .find(|r| r.key.ends_with(b"bub-0299"))
+            .expect("large bubble present");
+        let v: serde_json::Value =
+            serde_json::from_slice(&big.value).expect("large value is valid JSON");
+        let text = v["text"].as_str().expect("text field");
+        assert_eq!(text.len(), 100_000, "overflow payload reassembled to full length");
+        assert!(text.starts_with("0123456789ABCDEF"));
+        assert!(text.ends_with("0123456789ABCDEF"));
+    }
+
+    #[test]
+    fn oversized_payload_len_is_rejected_without_panic() {
+        // Corrupt one leaf cell's payload-length varint to claim far more bytes
+        // than the file holds. The guard in `read_payload` must drop that row
+        // (rather than attempt a huge `Vec::with_capacity` that aborts), while
+        // the remaining rows still decode.
+        let mut bytes = std::fs::read(fixture()).unwrap();
+        // cursorDiskKV rootpage is 4 at page_size 4096 -> a single leaf page.
+        let page = 3 * 4096;
+        assert_eq!(bytes[page], 0x0d, "rootpage should be a leaf table page");
+        let ptr = ((bytes[page + 8] as usize) << 8) | bytes[page + 9] as usize;
+        let cell = page + ptr;
+        // Overwrite the length varint with an 8-byte varint decoding to ~2^52,
+        // an allocation no host can satisfy. Without the guard, `read_payload`
+        // reaches `Vec::with_capacity(p)` and the process aborts; the guard
+        // rejects it up front so the row is simply skipped.
+        for (i, b) in [0x87, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x7F]
+            .into_iter()
+            .enumerate()
+        {
+            bytes[cell + i] = b;
+        }
+
+        let db = VscDb::from_bytes(bytes).expect("header still valid after patch");
+        let rows = db.read_table("cursorDiskKV"); // must not panic / not over-allocate
+        assert!(
+            rows.len() < 5,
+            "the corrupted oversized row should be skipped"
+        );
     }
 }

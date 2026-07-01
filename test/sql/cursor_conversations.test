@@ -208,3 +208,53 @@ query I
 SELECT COUNT(*) FROM read_stats(path='test/data_cursor');
 ----
 0
+
+# ============================================================
+# Large fixture (state_large.vscdb): exercises the pure-Rust reader's harder
+# file-format paths — interior b-tree page traversal and overflow-page
+# reassembly. 1 composer + 300 ordered bubbles; one bubble carries a ~100 KB
+# value that spills across overflow pages. Path points at the file directly
+# (the parent dir auto-detects the small state.vscdb).
+# ============================================================
+
+# All 300 ordered bubbles are returned: proves the interior root page's children
+# (every leaf page) are traversed, not just the first leaf.
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_cursor/state_large.vscdb');
+----
+300
+
+# One composer => one session.
+query I
+SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_cursor/state_large.vscdb');
+----
+1
+
+# The ~100 KB message round-trips byte-exact: proves overflow-chain reassembly.
+query I
+SELECT length(message_content) FROM read_conversations(path='test/data_cursor/state_large.vscdb')
+WHERE uuid = 'bub-0299';
+----
+100000
+
+query II
+SELECT LEFT(message_content, 4), RIGHT(message_content, 4)
+FROM read_conversations(path='test/data_cursor/state_large.vscdb')
+WHERE uuid = 'bub-0299';
+----
+0123	CDEF
+
+# Ordering is preserved across pages (first bubble has no parent; second links back).
+query III
+SELECT uuid, parent_uuid, message_type FROM read_conversations(path='test/data_cursor/state_large.vscdb')
+ORDER BY line_number LIMIT 2;
+----
+bub-0000	NULL	user
+bub-0001	bub-0000	assistant
+
+# Token usage is populated per bubble (bub-0001 has inputTokens=1, outputTokens=2).
+query II
+SELECT input_tokens, output_tokens FROM read_conversations(path='test/data_cursor/state_large.vscdb')
+WHERE uuid = 'bub-0001';
+----
+1	2
