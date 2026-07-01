@@ -148,6 +148,17 @@ SELECT is_agent FROM read_conversations(path='test/data_cursor') WHERE message_t
 true
 
 # ============================================================
+# Token usage from bubble.tokenCount (inputTokens / outputTokens)
+# ============================================================
+
+query III
+SELECT message_type, input_tokens, output_tokens FROM read_conversations(path='test/data_cursor')
+ORDER BY line_number;
+----
+user	12	0
+assistant	12	34
+
+# ============================================================
 # Tool fields from toolFormerData (only the assistant bubble has a tool call)
 # ============================================================
 

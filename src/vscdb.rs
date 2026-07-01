@@ -16,11 +16,28 @@
 //! Large payloads (Cursor JSON blobs routinely spill) are reassembled across
 //! overflow-page chains per the SQLite file format spec.
 //!
-//! WAL note: a live `state.vscdb` is usually WAL-mode with a `-wal` sidecar; rows
-//! committed only to the WAL would not be visible to a main-file-only reader.
-//! Cursor checkpoints aggressively, but to be safe the test fixture is generated
-//! in DELETE journal mode (see `test/data_cursor/make_fixture.py`) so every row
-//! lives in the main database file and the test is deterministic.
+//! WAL note: SQLite can journal in one of two modes. In the default *rollback*
+//! mode every committed row lives in the main database file, so a main-file-only
+//! reader like this one sees everything. In *WAL* (write-ahead logging) mode,
+//! recent commits are appended to a separate `state.vscdb-wal` sidecar and only
+//! folded ("checkpointed") into the main file later — a main-file-only reader
+//! would miss any row still sitting in the `-wal`.
+//!
+//! Cursor uses rollback mode in practice: every observed `state.vscdb` has its
+//! file-format version byte set to `1` (legacy/rollback) with no `-wal` sidecar.
+//! That byte latches to `2` permanently once a file has ever been WAL, so `1`
+//! means the file has never used WAL. This reader therefore targets rollback-mode
+//! files and does not read `-wal` frames. The test fixture is generated in DELETE
+//! journal mode (see `test/data_cursor/make_fixture.py`) to match.
+//!
+//! If a future Cursor build switches to WAL, supporting it is self-contained and
+//! needs no refactor of the code below: in `open()`, when a non-empty
+//! `state.vscdb-wal` exists, parse its 32-byte header + 24-byte-header frames,
+//! validate the cumulative salt/checksum to find the valid frame set up to the
+//! last commit, and overwrite the affected pages in `data` (extending it if a
+//! commit grew the DB). The existing offset-based reader then runs unchanged over
+//! the merged image. (A pure file reader cannot take SQLite's WAL read-lock, so
+//! it reads an unlocked snapshot — fine for offline/idle Cursor.)
 //!
 //! Reference: <https://www.sqlite.org/fileformat2.html>
 
@@ -236,6 +253,12 @@ impl VscDb {
     /// The remaining `P - local` bytes chain through overflow pages; each overflow
     /// page begins with a 4-byte BE next-page number (0 = last) then content.
     fn read_payload(&self, start: usize, p: usize, table_leaf: bool) -> Option<Vec<u8>> {
+        // A payload can never legitimately exceed the file itself. Reject an
+        // out-of-range length up front so a corrupt varint cannot drive a huge
+        // `Vec::with_capacity(p)` allocation (which would abort the process).
+        if p > self.data.len() {
+            return None;
+        }
         let usable = self.usable;
         let x = if table_leaf {
             usable - 35

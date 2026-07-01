@@ -52,22 +52,33 @@ pub struct CursorBubble {
     /// 1 = user, 2 = assistant
     #[serde(rename = "type")]
     pub bubble_type: Option<i64>,
-    /// Plain-text rendering of the message (preferred over `richText`).
+    /// Plain-text rendering of the message; used as `message_content`.
     pub text: Option<String>,
-    /// Lexical/editor tree; only used as a fallback if `text` is empty.
+    /// Lexical/editor rich-text tree. Parsed for completeness but not currently
+    /// surfaced (the plain `text` field is used for `message_content`).
     #[serde(rename = "richText")]
     pub rich_text: Option<serde_json::Value>,
     pub thinking: Option<serde_json::Value>,
     #[serde(rename = "createdAt")]
     pub created_at: Option<i64>,
     #[serde(rename = "tokenCount")]
-    pub token_count: Option<serde_json::Value>,
+    pub token_count: Option<CursorTokenCount>,
     #[serde(rename = "isAgentic")]
     pub is_agentic: Option<bool>,
     #[serde(rename = "timingInfo")]
     pub timing_info: Option<CursorTimingInfo>,
     #[serde(rename = "toolFormerData")]
     pub tool_former_data: Option<CursorToolData>,
+}
+
+/// `bubble.tokenCount` — per-message token usage as Cursor records it.
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct CursorTokenCount {
+    #[serde(rename = "inputTokens")]
+    pub input_tokens: Option<i64>,
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: Option<i64>,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]

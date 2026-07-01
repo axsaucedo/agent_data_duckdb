@@ -895,6 +895,12 @@ impl Conversations {
                             .or(t.params.as_ref())
                             .map(|v| v.to_string())
                     }),
+                    input_tokens: bubble
+                        .and_then(|b| b.token_count.as_ref())
+                        .and_then(|t| t.input_tokens),
+                    output_tokens: bubble
+                        .and_then(|b| b.token_count.as_ref())
+                        .and_then(|t| t.output_tokens),
                     ..Default::default()
                 });
                 prev_bubble = Some(bubble_id);
