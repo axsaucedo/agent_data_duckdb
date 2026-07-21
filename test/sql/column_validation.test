@@ -359,3 +359,18 @@ SELECT source, COUNT(*) FROM read_conversations(path='test/data_grok') GROUP BY 
 ----
 grok	14
 
+# reasoning_effort is VARCHAR and populated for Grok assistant/tool_call rows
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE typeof(reasoning_effort) != 'VARCHAR'
+  AND reasoning_effort IS NOT NULL;
+----
+0
+
+# Non-Grok sources leave reasoning_effort NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude')
+WHERE reasoning_effort IS NOT NULL;
+----
+0
+

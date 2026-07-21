@@ -40,6 +40,8 @@ pub struct ConversationRow {
     cwd: Option<String>,
     version: Option<String>,
     stop_reason: Option<String>,
+    /// Grok-only: per-message effort, else session summary backfill.
+    reasoning_effort: Option<String>,
     repository: Option<String>,
 }
 
@@ -1049,7 +1051,7 @@ impl Conversations {
                     message_role: Some("assistant".to_string()),
                     uuid: r.id,
                     message_content: r.summary.as_ref().map(utils::extract_text_content),
-                    stop_reason: effort,
+                    reasoning_effort: effort,
                     model: session_model.map(String::from),
                     ..base
                 }]
@@ -1075,7 +1077,7 @@ impl Conversations {
                         message_role: Some("assistant".to_string()),
                         message_content: content,
                         model: model.clone(),
-                        stop_reason: effort.clone(),
+                        reasoning_effort: effort.clone(),
                         ..base.clone()
                     });
                 }
@@ -1085,7 +1087,7 @@ impl Conversations {
                         message_type: "tool_call".to_string(),
                         message_role: Some("tool".to_string()),
                         model: model.clone(),
-                        stop_reason: effort.clone(),
+                        reasoning_effort: effort.clone(),
                         tool_name: tc.name.clone(),
                         tool_use_id: tc.id.clone(),
                         tool_input: Self::grok_tool_input(&tc.arguments),
@@ -1131,7 +1133,7 @@ impl TableFunc for Conversations {
             vtab::bigint("cache_read_tokens"), vtab::varchar("slug"),
             vtab::varchar("git_branch"),    vtab::varchar("cwd"),
             vtab::varchar("version"),       vtab::varchar("stop_reason"),
-            vtab::varchar("repository"),
+            vtab::varchar("reasoning_effort"), vtab::varchar("repository"),
         ]
     }
 
@@ -1176,6 +1178,7 @@ impl TableFunc for Conversations {
         vtab::set_varchar_opt(output, 23, idx, row.cwd.as_deref());
         vtab::set_varchar_opt(output, 24, idx, row.version.as_deref());
         vtab::set_varchar_opt(output, 25, idx, row.stop_reason.as_deref());
-        vtab::set_varchar_opt(output, 26, idx, row.repository.as_deref());
+        vtab::set_varchar_opt(output, 26, idx, row.reasoning_effort.as_deref());
+        vtab::set_varchar_opt(output, 27, idx, row.repository.as_deref());
     }
 }

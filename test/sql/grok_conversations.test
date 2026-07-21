@@ -188,7 +188,7 @@ WHERE message_type = 'tool_call' AND tool_use_id = 'call_002';
 {"command":"python -c \"print(1)\""}
 
 # ============================================================
-# reasoning_effort → stop_reason (Grok-only mapping)
+# reasoning_effort column (Grok-only; stop_reason stays NULL)
 # ============================================================
 
 # Message-level effort on assistant/tool_call rows in the parent session
@@ -196,13 +196,20 @@ query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
 WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
   AND message_type IN ('assistant', 'tool_call')
-  AND stop_reason != 'high';
+  AND reasoning_effort != 'high';
+----
+0
+
+# Effort must NOT be shoehorned into stop_reason
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE stop_reason IS NOT NULL;
 ----
 0
 
 # Session-level effort backfills when message has none (beta assistant → low)
 query T
-SELECT stop_reason FROM read_conversations(path='test/data_grok')
+SELECT reasoning_effort FROM read_conversations(path='test/data_grok')
 WHERE session_id = 'bbbb2222-0000-0000-0000-000000000002'
   AND message_type = 'assistant';
 ----

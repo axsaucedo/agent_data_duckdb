@@ -44,7 +44,7 @@ pub struct GrokAssistantMessage {
     pub reasoning: Option<String>,
     pub model_id: Option<String>,
     pub model_fingerprint: Option<String>,
-    /// Per-message effort (low|medium|high|xhigh|…). Mapped to `stop_reason`.
+    /// Per-message effort (low|medium|high|xhigh|…). Mapped to `reasoning_effort`.
     pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub tool_calls: Vec<GrokToolCall>,
@@ -102,7 +102,7 @@ pub struct GrokSummary {
     pub generated_title: Option<String>,
     /// Format version → `version` (as string).
     pub chat_format_version: Option<serde_json::Value>,
-    /// Session-level effort; backfills `stop_reason` when the message has none.
+    /// Session-level effort; backfills `reasoning_effort` when the message has none.
     pub reasoning_effort: Option<String>,
     pub agent_name: Option<String>,
 }

@@ -131,8 +131,8 @@ Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'co
 
 > **Grok** has no extra build dependencies. Transcripts live at
 > `~/.grok/sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl` with
-> session metadata in a sibling `summary.json`. There is **no schema change** —
-> Grok maps only onto existing `read_conversations` columns (see field map
+> session metadata in a sibling `summary.json`. Grok fills the shared
+> `read_conversations` columns plus Grok-only `reasoning_effort` (see field map
 > below). `encrypted_content` is never read. Token usage is **not** in
 > `chat_history` (and `updates.jsonl` is intentionally not parsed yet), so
 > `input_tokens` / `output_tokens` / `cache_*` stay `NULL` for interactive Grok.
@@ -175,7 +175,8 @@ Reads conversation/event data.
 | `git_branch` | VARCHAR | Git branch |
 | `cwd` | VARCHAR | Working directory |
 | `version` | VARCHAR | Agent CLI version (Grok: `summary.chat_format_version` as string) |
-| `stop_reason` | VARCHAR | Claude API stop reason; **Grok: per-message `reasoning_effort`** (`low`/`medium`/`high`/…) with session-level backfill |
+| `stop_reason` | VARCHAR | Claude API stop reason (NULL for Grok) |
+| `reasoning_effort` | VARCHAR | Grok-only: per-message `reasoning_effort` (`low`/`medium`/`high`/…), else session-level `summary.reasoning_effort` backfill; NULL for other sources |
 | `repository` | VARCHAR | GitHub repository (Copilot; Grok from `summary.git_remotes[0]`) |
 
 **Message type mappings:**
@@ -201,7 +202,7 @@ Reads conversation/event data.
 > `tool_call` row whose `parent_uuid` links back to the assistant message and
 > whose `message_content` holds the call status (`success` / `error` / `cancelled`).
 
-> **Grok field map (existing columns only — no new schema):**
+> **Grok field map:**
 >
 > | Grok source | Column | Notes |
 > |-------------|--------|--------|
@@ -209,7 +210,7 @@ Reads conversation/event data.
 > | `content` / `summary[].text` | `message_content` | User may be string or `{type,text}` blocks; reasoning uses summary text only (never `encrypted_content`) |
 > | `model_id` (else `summary.current_model_id`) | `model` | |
 > | `tool_calls[].name/id/arguments` | `tool_name` / `tool_use_id` / `tool_input` | One row per call; string or object args → stable string |
-> | `reasoning_effort` (message, else summary) | `stop_reason` | Grok-only reuse of existing varchar |
+> | `reasoning_effort` (message, else summary) | `reasoning_effort` | Grok-only nullable varchar; `stop_reason` stays NULL |
 > | `summary.generated_title` | `slug` | Session title |
 > | `summary.chat_format_version` | `version` | Stringified |
 > | `summary.created_at` | `timestamp` | Session-level backfill |
@@ -218,8 +219,7 @@ Reads conversation/event data.
 > | subagent `meta.json` | `is_agent` / `parent_uuid` | Child session → true; parent session id |
 >
 > **Known gaps:** `input_tokens`/`output_tokens`/`cache_*` stay NULL (not in
-> `chat_history`; `updates.jsonl` / headless usage is a future PR). No new
-> columns for `reasoning_effort` (lives in `stop_reason` for `source='grok'`).
+> `chat_history`; `updates.jsonl` / headless usage is a future PR).
 
 ### `read_plans([path], [source])`
 
