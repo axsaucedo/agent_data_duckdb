@@ -1,0 +1,2 @@
+{"timestamp":1700000000,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"agent_message_chunk","content":"ignored"}}}
+{"timestamp":1700000001,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"turn_completed","prompt_id":"prompt-aaaa-001","stop_reason":"end_turn","usage":{"inputTokens":1200,"outputTokens":80,"totalTokens":1280,"cachedReadTokens":400,"reasoningTokens":45,"modelCalls":2,"numTurns":2}}}}
