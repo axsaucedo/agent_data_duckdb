@@ -735,6 +735,34 @@ pub fn read_grok_last_turn_usage(
     last
 }
 
+/// Read a Grok session's signals.json (optional sibling of chat_history.jsonl).
+pub fn read_grok_signals(session_dir: &Path) -> Option<crate::types::grok::GrokSignals> {
+    let content = std::fs::read_to_string(session_dir.join("signals.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Session-level timestamp for Grok rows: prefer last activity, then update,
+/// then created (floor). chat_history has no per-message timestamps; updates.jsonl
+/// timestamps do not 1:1-align with transcript lines.
+pub fn grok_session_timestamp(summary: &crate::types::grok::GrokSummary) -> Option<String> {
+    summary
+        .last_active_at
+        .clone()
+        .or_else(|| summary.updated_at.clone())
+        .or_else(|| summary.created_at.clone())
+}
+
+/// YYYY-MM-DD from an ISO-ish summary timestamp (first 10 chars when well-formed).
+pub fn grok_date_from_timestamp(ts: &str) -> Option<String> {
+    if ts.len() >= 10 {
+        let date = &ts[..10];
+        if date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-' {
+            return Some(date.to_string());
+        }
+    }
+    None
+}
+
 /// Minimal percent-decoding for Grok's url-encoded cwd directory names
 /// (`%2FUsers%2F...` → `/Users/...`). Handles the `%2F` case Grok actually emits.
 pub fn url_decode(s: &str) -> String {

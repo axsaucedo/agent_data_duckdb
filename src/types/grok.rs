@@ -6,8 +6,17 @@ use serde::Deserialize;
 //   ~/.grok/sessions/<url-encoded-cwd>/<session-uuid>/chat_history.jsonl
 // Lines are tagged by `type`: system | user | reasoning | assistant | tool_result.
 // chat_history lines carry NO per-message timestamp and (except reasoning `id`)
-// no stable uuid. Session metadata (timestamp, git branch, model, repo, title,
-// format version) is read from summary.json in the same dir.
+// no stable uuid. When uuid is missing we synthesize
+//   `{session_id}:{line_number}`
+// so every row has a non-NULL uuid; real `reasoning.id` is preferred when present.
+//
+// Timestamps: no per-message ts in chat_history. Session-level stamp from
+// summary (`last_active_at` → `updated_at` → `created_at`). updates.jsonl has
+// wall-clock `timestamp` (unix secs) but does not 1:1-align with chat lines, so
+// we do not invent per-message times from it.
+//
+// Session metadata (git branch, model, repo, title, format version) is read
+// from summary.json in the same dir. Optional `signals.json` feeds read_stats.
 //
 // Subagents: parent session may contain
 //   subagents/<child_uuid>/meta.json
@@ -105,6 +114,8 @@ pub struct GrokSummary {
     /// Session-level effort; backfills `reasoning_effort` when the message has none.
     pub reasoning_effort: Option<String>,
     pub agent_name: Option<String>,
+    /// Optional chat-history line count (fallback for read_stats message_count).
+    pub num_messages: Option<i64>,
 }
 
 // ─── Grok subagent meta.json ───
@@ -176,6 +187,26 @@ impl GrokUsage {
             || self.cached_read_tokens.is_some()
             || self.reasoning_tokens.is_some()
     }
+}
+
+// ─── Grok signals.json (per-session aggregates → read_stats) ───
+//
+// Optional sibling of chat_history. Session-level counters only; no per-message
+// rows. Mapped into existing read_stats columns (date / message_count /
+// session_count / tool_call_count) — no new table function.
+
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default, rename_all = "camelCase")]
+pub struct GrokSignals {
+    pub user_message_count: Option<i64>,
+    pub assistant_message_count: Option<i64>,
+    pub tool_call_count: Option<i64>,
+    pub turn_count: Option<i64>,
+    pub avg_time_to_first_token_ms: Option<f64>,
+    pub context_tokens_used: Option<i64>,
+    pub models_used: Option<Vec<String>>,
+    pub primary_model_id: Option<String>,
+    pub session_duration_seconds: Option<i64>,
 }
 
 // ─── Grok plan.md / plan_mode.json are handled by read_plans (plain markdown) ───

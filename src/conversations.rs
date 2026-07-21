@@ -924,10 +924,11 @@ impl Conversations {
 
 // ─── Grok loading ───
 //
-// chat_history.jsonl is the transcript (no per-line timestamp; reasoning has
-// `id`). Session metadata (timestamp, branch, model, repo, slug, version,
-// session-level reasoning_effort) comes from summary.json and is applied to
-// every row — same "session metadata backfill" technique as Copilot.
+// chat_history.jsonl is the transcript (no per-line timestamp). When a line has
+// no uuid, we synthesize `{session_id}:{line_number}`; reasoning keeps real `id`
+// when present. Session timestamp is last_active_at → updated_at → created_at
+// (session-level; not per-message). Branch/model/repo/slug/version/effort come
+// from summary.json — same backfill technique as Copilot.
 //
 // Subagent children (linked via parent/subagents/<id>/meta.json) get
 // is_agent=true and parent_uuid=parent_session_id.
@@ -935,8 +936,15 @@ impl Conversations {
 // Token usage is not on chat_history lines. Sibling updates.jsonl turn_completed
 // events carry cumulative-per-prompt usage; we stamp the last usable snapshot
 // onto every row of the session (session/prompt aggregate, not per-message).
+// UUIDs: real reasoning.id when present, else synthetic {session}:{line}.
+// Timestamps: session-level from summary (last_active_at → updated_at → created_at).
 
 impl Conversations {
+    /// Prefer a real message id; otherwise `{session_id}:{line_number}`.
+    fn grok_row_uuid(existing: Option<String>, session_id: &str, line_number: i64) -> String {
+        existing.unwrap_or_else(|| format!("{}:{}", session_id, line_number))
+    }
+
     fn load_grok_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
         let files = utils::discover_grok_session_files(base_path);
         let subagent_parents = utils::discover_grok_subagent_parents(base_path);
@@ -947,7 +955,7 @@ impl Conversations {
             let summary = utils::read_grok_summary(session_dir);
             let usage = utils::read_grok_last_turn_usage(session_dir);
 
-            let session_ts = summary.as_ref().and_then(|s| s.created_at.clone());
+            let session_ts = summary.as_ref().and_then(utils::grok_session_timestamp);
             let git_branch = summary.as_ref().and_then(|s| s.head_branch.clone());
             let repository = summary
                 .as_ref()
@@ -1008,18 +1016,24 @@ impl Conversations {
 
                 match serde_json::from_str::<GrokMessage>(&line) {
                     Ok(msg) => {
-                        for row in Self::grok_message_to_rows(
+                        for mut row in Self::grok_message_to_rows(
                             msg,
                             base,
                             session_model.as_deref(),
                             session_effort.as_deref(),
                         ) {
+                            row.uuid = Some(Self::grok_row_uuid(
+                                row.uuid.take(),
+                                session_uuid,
+                                file_line,
+                            ));
                             rows.push(row);
                         }
                     }
                     Err(e) => rows.push(ConversationRow {
                         message_type: "_parse_error".to_string(),
                         message_content: Some(format!("Parse error: {}", e)),
+                        uuid: Some(Self::grok_row_uuid(None, session_uuid, file_line)),
                         ..base
                     }),
                 }

@@ -79,18 +79,32 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE message_typ
 ----
 0
 
-# Only reasoning rows carry uuid (from reasoning.id); others NULL
+# uuid is never NULL (synthetic `{session_id}:{line_number}` when missing)
 query I
-SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
-WHERE message_type = 'reasoning' AND uuid IS NULL;
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE uuid IS NULL;
 ----
 0
 
-query I
-SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
-WHERE message_type != 'reasoning' AND uuid IS NOT NULL;
+# reasoning keeps real id when present
+query T
+SELECT uuid FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'reasoning';
 ----
-0
+rs_aaa001
+
+# synthetic form for a non-reasoning line (session aaaa line 1 = system)
+query T
+SELECT uuid FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001' AND line_number = 1;
+----
+aaaa1111-0000-0000-0000-000000000001:1
+
+# multi-tool fan-out shares the source line's synthetic uuid
+query I
+SELECT COUNT(DISTINCT uuid) FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001' AND line_number = 4;
+----
+1
 
 # slug backfilled from summary.generated_title on every row
 query I
@@ -104,11 +118,18 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE version IS 
 ----
 0
 
-# timestamp backfilled from summary.created_at (session-level) on every row
+# timestamp is session-level (never NULL when summary has activity stamps)
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE timestamp IS NULL;
 ----
 0
+
+# prefer last_active_at / updated_at over created_at (parent session)
+query T
+SELECT DISTINCT timestamp FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001';
+----
+2026-05-18T17:35:38.403978Z
 
 # Token columns from updates.jsonl turn_completed (session aaaa has fixture usage)
 # Values are last-prompt aggregates stamped on every row of that session.
