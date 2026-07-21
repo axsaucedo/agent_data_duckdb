@@ -146,7 +146,7 @@ Reads conversation/event data.
 - **Cursor:** `composerData:*` / `bubbleId:*` rows from `state.vscdb` (read with the pure-Rust `src/vscdb.rs` reader; one composer = one session)
 - **Codex:** JSONL rollout streams from `sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl`
 - **Gemini:** JSON chat checkpoints from `tmp/<project-hash>/chats/session-<ts>-<id>.json` (one file = one session; each tool call is also emitted as a `tool_call` row)
-- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata backfilled from the sibling `summary.json`. Token columns from sibling `updates.jsonl` `turn_completed.usage` (last snapshot stamped on every row of the session). Subagent children linked via `…/<parent>/subagents/<child>/meta.json` set `is_agent=true` (and session-level `parent_uuid`).
+- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata from sibling `summary.json`. **Timestamps** and **token** columns come from sibling `updates.jsonl` (wire event stream — chat_history itself has no time/usage fields). Subagent children linked via `…/<parent>/subagents/<child>/meta.json` set `is_agent=true` (and session-level `parent_uuid`).
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -160,7 +160,7 @@ Reads conversation/event data.
 | `message_type` | VARCHAR | See message type mappings below |
 | `uuid` | VARCHAR | Message/event UUID |
 | `parent_uuid` | VARCHAR | Parent message/event UUID (Grok: parent session id on subagent rows) |
-| `timestamp` | VARCHAR | ISO 8601 timestamp |
+| `timestamp` | VARCHAR | ISO 8601 timestamp (Claude/Copilot per-message; **Grok:** from `updates.jsonl` event clock, else summary session stamp) |
 | `message_role` | VARCHAR | `user`, `assistant`, `tool`, or NULL |
 | `message_content` | VARCHAR | Text content |
 | `model` | VARCHAR | AI model used |
@@ -214,7 +214,7 @@ Reads conversation/event data.
 > | `reasoning_effort` (message, else summary) | `reasoning_effort` | Grok-only nullable varchar; `stop_reason` stays NULL |
 > | `summary.generated_title` | `slug` | Session title |
 > | `summary.chat_format_version` | `version` | Stringified |
-> | `summary.last_active_at` → `updated_at` → `created_at` | `timestamp` | **Session-level only** (chat_history has no per-message ts; `created_at` is the floor) |
+> | `updates.jsonl` `timestamp` (+ kind) | `timestamp` | Unix sec → ISO; cursor-aligned to chat types (`user_message_chunk`→user, `agent_thought_chunk`→reasoning, …). Fallback: summary activity stamp |
 > | `summary.head_branch` / `git_remotes[0]` / `git_root_dir` | `git_branch` / `repository` / `project_path` | |
 > | `reasoning.id`, else synthetic | `uuid` | Prefer real id; else `{session_id}:{line_number}` so uuid is never NULL |
 > | subagent `meta.json` | `is_agent` / `parent_uuid` | Child session → true; parent session id |
@@ -234,8 +234,10 @@ Reads conversation/event data.
 > Multi-row fan-out from one assistant line (text + tool_call rows) shares that
 > line's uuid. Prefer real `reasoning.id` when present.
 >
-> **Timestamps:** Grok `chat_history` has no per-message time. Session stamp
-> uses `summary.last_active_at` → `updated_at` → `created_at` (session-level).
+> **Timestamps:** `chat_history` has no time fields. The CLI clocks live in
+> `updates.jsonl`. The parser walks chat lines and assigns the next matching
+> wire event's ISO time (same `timestamp` column as Claude). No `updates.jsonl`
+> → summary session stamp only.
 
 ### `read_plans([path], [source])`
 
@@ -402,7 +404,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-433 pinned assertions across 21 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, Grok stats, and parse error handling.
+437 pinned assertions across 21 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, Grok stats, and parse error handling.
 
 ## Building from Source
 

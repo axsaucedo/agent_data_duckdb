@@ -118,18 +118,49 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE version IS 
 ----
 0
 
-# timestamp is session-level (never NULL when summary has activity stamps)
+# timestamp never NULL when summary and/or updates.jsonl provide clocks
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE timestamp IS NULL;
 ----
 0
 
-# prefer last_active_at / updated_at over created_at (parent session)
+# Grok stamps ISO timestamps from updates.jsonl (unix sec → ISO), Claude-shaped column.
+# system uses summary.created_at; other types walk the wire timeline.
+query T
+SELECT timestamp FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND message_type = 'system'
+LIMIT 1;
+----
+2026-05-18T09:29:16.797043Z
+
+query T
+SELECT timestamp FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND message_type = 'user' AND message_content = 'Add a hello world function.';
+----
+2023-11-14T22:15:00Z
+
+query T
+SELECT timestamp FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND message_type = 'reasoning';
+----
+2023-11-14T22:15:05Z
+
+query T
+SELECT timestamp FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND message_type = 'assistant' AND message_content = 'I''ll add it now.';
+----
+2023-11-14T22:15:10Z
+
+# Sessions without updates.jsonl still get session-level summary timestamps
 query T
 SELECT DISTINCT timestamp FROM read_conversations(path='test/data_grok')
-WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001';
+WHERE session_id = 'bbbb2222-0000-0000-0000-000000000002';
 ----
-2026-05-18T17:35:38.403978Z
+2026-05-19T10:01:00.000000Z
 
 # Token columns from updates.jsonl turn_completed (session aaaa has fixture usage)
 # Values are last-prompt aggregates stamped on every row of that session.

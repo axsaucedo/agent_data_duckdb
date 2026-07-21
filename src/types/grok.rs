@@ -133,22 +133,30 @@ pub struct GrokSubagentMeta {
     pub effective_model_id: Option<String>,
 }
 
-// ─── Grok updates.jsonl (token usage) ───
+// ─── Grok updates.jsonl (event stream: timestamps + token usage) ───
 //
-// Sibling of chat_history.jsonl. Token usage is NOT on chat_history lines.
-// Final (or only) usage snapshot for a prompt lives on:
-//   params.update.sessionUpdate == "turn_completed"
-//   params.update.usage = { inputTokens, outputTokens, cachedReadTokens,
-//                           reasoningTokens, numTurns, ... }
+// Sibling of chat_history.jsonl. chat_history has NO per-message timestamps;
+// this file does: top-level `timestamp` (unix seconds) on every line, plus
+// optional params._meta.*Ms. Token usage lives on turn_completed.usage.
+//
 // Usage is cumulative within one user-prompt agent loop (numTurns 1→N), then
-// resets for the next prompt. Interactive sessions may emit one turn_completed
-// per prompt with the final cumulative totals.
+// resets for the next prompt.
 
 /// Envelope for one updates.jsonl line (other fields ignored).
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(default)]
 pub struct GrokUpdatesLine {
+    /// Unix seconds (wall clock for the wire event).
+    pub timestamp: Option<i64>,
     pub params: Option<GrokUpdatesParams>,
+}
+
+/// One timed event from updates.jsonl, used to stamp chat_history rows so
+/// `timestamp` matches Claude/Copilot-style ISO strings on conversation rows.
+#[derive(Debug, Clone)]
+pub struct GrokTimedEvent {
+    pub kind: String,
+    pub timestamp_iso: String,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]

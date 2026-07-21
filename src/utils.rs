@@ -434,10 +434,8 @@ pub fn read_workspace_yaml(session_dir: &Path) -> Option<crate::types::copilot::
 }
 
 /// Convert epoch milliseconds to an ISO-8601 UTC string (e.g. "2026-06-10T12:34:56Z").
-/// Minimal, dependency-free; sufficient for Cursor `createdAt` timestamps.
-/// Only used by the Cursor parser, so gated to avoid a dead-code warning when the
-/// `cursor` feature is disabled.
-#[cfg(feature = "cursor")]
+/// Minimal, dependency-free. Used by Cursor (`createdAt`) and Grok (`updates.jsonl`
+/// timestamps, which are unix seconds — call `epoch_secs_to_iso`).
 pub fn epoch_ms_to_iso(ms: i64) -> String {
     let secs = ms / 1000;
     let days = secs.div_euclid(86_400);
@@ -460,6 +458,11 @@ pub fn epoch_ms_to_iso(ms: i64) -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, m, d, hh, mm, ss
     )
+}
+
+/// Unix seconds → ISO-8601 UTC (Grok `updates.jsonl` top-level `timestamp`).
+pub fn epoch_secs_to_iso(secs: i64) -> String {
+    epoch_ms_to_iso(secs.saturating_mul(1000))
 }
 
 // ─── Codex Discovery Functions ───
@@ -733,6 +736,90 @@ pub fn read_grok_last_turn_usage(
         }
     }
     last
+}
+
+/// Ordered timeline of semantic updates.jsonl events (with ISO timestamps).
+///
+/// Skips noise (hooks, memory flushes). Used to fill `ConversationRow.timestamp`
+/// so Grok rows look like Claude (ISO string per message) even though
+/// chat_history.jsonl has no time fields.
+pub fn read_grok_update_timeline(
+    session_dir: &Path,
+) -> Vec<crate::types::grok::GrokTimedEvent> {
+    use crate::types::grok::{GrokTimedEvent, GrokUpdatesLine};
+    use std::io::{BufRead, BufReader};
+
+    let file = match std::fs::File::open(session_dir.join("updates.jsonl")) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for line_result in BufReader::new(file).lines() {
+        let line = match line_result {
+            Ok(l) if !l.trim().is_empty() => l,
+            _ => continue,
+        };
+        let env: GrokUpdatesLine = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let secs = match env.timestamp {
+            Some(t) => t,
+            None => continue,
+        };
+        let kind = env
+            .params
+            .and_then(|p| p.update)
+            .and_then(|u| u.session_update)
+            .unwrap_or_default();
+        // Keep events that map onto transcript rows.
+        match kind.as_str() {
+            "user_message_chunk"
+            | "agent_thought_chunk"
+            | "agent_message_chunk"
+            | "tool_call"
+            | "tool_call_update"
+            | "turn_completed" => {
+                out.push(GrokTimedEvent {
+                    kind,
+                    timestamp_iso: epoch_secs_to_iso(secs),
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Cursor over [`read_grok_update_timeline`] — next matching event, else fallback.
+pub struct GrokTimeCursor {
+    events: Vec<crate::types::grok::GrokTimedEvent>,
+    idx: usize,
+}
+
+impl GrokTimeCursor {
+    pub fn new(events: Vec<crate::types::grok::GrokTimedEvent>) -> Self {
+        Self { events, idx: 0 }
+    }
+
+    /// Advance to the next event whose kind is in `candidates` (skipping others).
+    pub fn next_for(&mut self, candidates: &[&str]) -> Option<String> {
+        while self.idx < self.events.len() {
+            let ev = &self.events[self.idx];
+            if candidates.iter().any(|c| *c == ev.kind) {
+                let iso = ev.timestamp_iso.clone();
+                self.idx += 1;
+                return Some(iso);
+            }
+            self.idx += 1;
+        }
+        None
+    }
+
+    /// Like `next_for`, but fall back when the stream is exhausted / missing.
+    pub fn next_or(&mut self, candidates: &[&str], fallback: &Option<String>) -> Option<String> {
+        self.next_for(candidates).or_else(|| fallback.clone())
+    }
 }
 
 /// Read a Grok session's signals.json (optional sibling of chat_history.jsonl).

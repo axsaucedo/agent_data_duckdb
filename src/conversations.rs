@@ -924,25 +924,33 @@ impl Conversations {
 
 // ─── Grok loading ───
 //
-// chat_history.jsonl is the transcript (no per-line timestamp). When a line has
-// no uuid, we synthesize `{session_id}:{line_number}`; reasoning keeps real `id`
-// when present. Session timestamp is last_active_at → updated_at → created_at
-// (session-level; not per-message). Branch/model/repo/slug/version/effort come
-// from summary.json — same backfill technique as Copilot.
+// chat_history.jsonl is the transcript (no per-line timestamp on disk).
+// Sibling updates.jsonl IS the event clock: top-level `timestamp` (unix sec).
+// We walk chat lines in order and assign ISO timestamps from matching update
+// kinds so `timestamp` looks like Claude/Copilot (ISO string per row).
+// Fallback: summary last_active_at → updated_at → created_at.
 //
-// Subagent children (linked via parent/subagents/<id>/meta.json) get
-// is_agent=true and parent_uuid=parent_session_id.
-//
-// Token usage is not on chat_history lines. Sibling updates.jsonl turn_completed
-// events carry cumulative-per-prompt usage; we stamp the last usable snapshot
-// onto every row of the session (session/prompt aggregate, not per-message).
-// UUIDs: real reasoning.id when present, else synthetic {session}:{line}.
-// Timestamps: session-level from summary (last_active_at → updated_at → created_at).
+// UUIDs: reasoning keeps real `id` when present; else `{session_id}:{line}`.
+// Tokens: last turn_completed.usage stamped as session aggregate on every row.
+// Subagents: meta.json → is_agent + parent_uuid.
 
 impl Conversations {
     /// Prefer a real message id; otherwise `{session_id}:{line_number}`.
     fn grok_row_uuid(existing: Option<String>, session_id: &str, line_number: i64) -> String {
         existing.unwrap_or_else(|| format!("{}:{}", session_id, line_number))
+    }
+
+    /// Which updates.jsonl sessionUpdate kinds stamp this chat_history type.
+    fn grok_time_candidates(message_type: &str) -> &'static [&'static str] {
+        match message_type {
+            "user" => &["user_message_chunk"],
+            "reasoning" => &["agent_thought_chunk"],
+            "assistant" => &["agent_message_chunk", "tool_call"],
+            "tool_call" => &["tool_call"],
+            "tool_result" => &["tool_call_update", "tool_call"],
+            "system" => &["user_message_chunk", "agent_thought_chunk"], // first real event-ish
+            _ => &[],
+        }
     }
 
     fn load_grok_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
@@ -954,6 +962,8 @@ impl Conversations {
             let session_dir = file_path.parent().unwrap_or(file_path);
             let summary = utils::read_grok_summary(session_dir);
             let usage = utils::read_grok_last_turn_usage(session_dir);
+            let mut time_cursor =
+                utils::GrokTimeCursor::new(utils::read_grok_update_timeline(session_dir));
 
             let session_ts = summary.as_ref().and_then(utils::grok_session_timestamp);
             let git_branch = summary.as_ref().and_then(|s| s.head_branch.clone());
@@ -991,6 +1001,25 @@ impl Conversations {
                     _ => continue,
                 };
 
+                // Peek type for timestamp assignment before full map.
+                let peek_type = serde_json::from_str::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("type")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+                let row_ts = if peek_type == "system" {
+                    // Prefer session created_at for system preamble (before wire events).
+                    summary
+                        .as_ref()
+                        .and_then(|s| s.created_at.clone())
+                        .or_else(|| session_ts.clone())
+                } else {
+                    time_cursor.next_or(Self::grok_time_candidates(&peek_type), &session_ts)
+                };
+
                 let base = ConversationRow {
                     source: "grok".to_string(),
                     session_id: session_uuid.clone(),
@@ -1000,7 +1029,7 @@ impl Conversations {
                     is_agent,
                     line_number: file_line,
                     parent_uuid: parent_uuid.clone(),
-                    timestamp: session_ts.clone(),
+                    timestamp: row_ts,
                     slug: slug.clone(),
                     git_branch: git_branch.clone(),
                     cwd: Some(decoded_cwd.clone()),
