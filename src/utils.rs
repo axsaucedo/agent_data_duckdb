@@ -697,6 +697,44 @@ pub fn read_grok_summary(session_dir: &Path) -> Option<crate::types::grok::GrokS
     serde_json::from_str(&content).ok()
 }
 
+/// Last `turn_completed` usage snapshot from `updates.jsonl` (sibling of chat_history).
+///
+/// Returns `None` if the file is missing, unreadable, or has no usable usage block.
+/// Callers stamp this onto conversation rows as a session/prompt aggregate (not
+/// per-message); see README Grok field map.
+pub fn read_grok_last_turn_usage(
+    session_dir: &Path,
+) -> Option<crate::types::grok::GrokUsage> {
+    use crate::types::grok::{GrokUpdatesLine, GrokUsage};
+    use std::io::{BufRead, BufReader};
+
+    let file = std::fs::File::open(session_dir.join("updates.jsonl")).ok()?;
+    let mut last: Option<GrokUsage> = None;
+    for line_result in BufReader::new(file).lines() {
+        let line = match line_result {
+            Ok(l) if !l.trim().is_empty() => l,
+            _ => continue,
+        };
+        let env: GrokUpdatesLine = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let update = match env.params.and_then(|p| p.update) {
+            Some(u) => u,
+            None => continue,
+        };
+        if update.session_update.as_deref() != Some("turn_completed") {
+            continue;
+        }
+        if let Some(usage) = update.usage {
+            if usage.has_any_tokens() {
+                last = Some(usage);
+            }
+        }
+    }
+    last
+}
+
 /// Minimal percent-decoding for Grok's url-encoded cwd directory names
 /// (`%2FUsers%2F...` → `/Users/...`). Handles the `%2F` case Grok actually emits.
 pub fn url_decode(s: &str) -> String {

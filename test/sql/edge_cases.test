@@ -139,7 +139,7 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_copilot', source='unknow
 # Column count validation (correct number of columns)
 # ============================================================
 
-# Conversations: 28 columns (includes reasoning_effort)
+# Conversations: 29 columns (includes reasoning_tokens + reasoning_effort)
 query I
 SELECT COUNT(*) FROM (
     SELECT * FROM read_conversations(path='test/data_claude') LIMIT 0

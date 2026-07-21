@@ -341,16 +341,33 @@ WHERE typeof(line_number) != 'BIGINT' OR line_number <= 0;
 ----
 0
 
-# uuid is NULL except reasoning rows (reasoning.id); tokens always NULL
+# uuid is NULL except reasoning rows (reasoning.id)
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
 WHERE message_type != 'reasoning' AND uuid IS NOT NULL;
 ----
 0
 
+# Tokens only on the session that has updates.jsonl turn_completed usage
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
-WHERE input_tokens IS NOT NULL OR output_tokens IS NOT NULL;
+WHERE input_tokens IS NOT NULL OR output_tokens IS NOT NULL
+   OR reasoning_tokens IS NOT NULL;
+----
+10
+
+# reasoning_tokens is BIGINT when present (Grok only)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND typeof(reasoning_tokens) != 'BIGINT';
+----
+0
+
+# Claude never populates reasoning_tokens
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude')
+WHERE reasoning_tokens IS NOT NULL;
 ----
 0
 

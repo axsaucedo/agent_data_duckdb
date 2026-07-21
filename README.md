@@ -132,10 +132,10 @@ Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'co
 > **Grok** has no extra build dependencies. Transcripts live at
 > `~/.grok/sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl` with
 > session metadata in a sibling `summary.json`. Grok fills the shared
-> `read_conversations` columns plus Grok-only `reasoning_effort` (see field map
-> below). `encrypted_content` is never read. Token usage is **not** in
-> `chat_history` (and `updates.jsonl` is intentionally not parsed yet), so
-> `input_tokens` / `output_tokens` / `cache_*` stay `NULL` for interactive Grok.
+> `read_conversations` columns plus Grok-only `reasoning_effort` and
+> `reasoning_tokens` (see field map below). `encrypted_content` is never read.
+> Token usage is **not** on `chat_history` lines — it comes from the sibling
+> `updates.jsonl` (`sessionUpdate == "turn_completed"` → `usage`).
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
@@ -146,7 +146,7 @@ Reads conversation/event data.
 - **Cursor:** `composerData:*` / `bubbleId:*` rows from `state.vscdb` (read with the pure-Rust `src/vscdb.rs` reader; one composer = one session)
 - **Codex:** JSONL rollout streams from `sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl`
 - **Gemini:** JSON chat checkpoints from `tmp/<project-hash>/chats/session-<ts>-<id>.json` (one file = one session; each tool call is also emitted as a `tool_call` row)
-- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata backfilled from the sibling `summary.json`. Subagent children linked via `…/<parent>/subagents/<child>/meta.json` set `is_agent=true` (and session-level `parent_uuid`).
+- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata backfilled from the sibling `summary.json`. Token columns from sibling `updates.jsonl` `turn_completed.usage` (last snapshot stamped on every row of the session). Subagent children linked via `…/<parent>/subagents/<child>/meta.json` set `is_agent=true` (and session-level `parent_uuid`).
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -167,10 +167,11 @@ Reads conversation/event data.
 | `tool_name` | VARCHAR | Tool called |
 | `tool_use_id` | VARCHAR | Tool use/call identifier |
 | `tool_input` | VARCHAR | Tool input as JSON string |
-| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation; **NULL for Grok**) |
-| `output_tokens` | BIGINT | Output token count (**NULL for Grok**) |
-| `cache_creation_tokens` | BIGINT | Cache creation tokens (Claude only) |
-| `cache_read_tokens` | BIGINT | Cache read tokens (Claude; Gemini `cached`) |
+| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation; **Grok: last `updates.jsonl` turn_completed `inputTokens`**, session aggregate duplicated on every row) |
+| `output_tokens` | BIGINT | Output token count (**Grok: last turn_completed `outputTokens`**) |
+| `cache_creation_tokens` | BIGINT | Cache creation tokens (Claude only; Grok always NULL) |
+| `cache_read_tokens` | BIGINT | Cache read tokens (Claude; Gemini `cached`; **Grok: last turn_completed `cachedReadTokens`**) |
+| `reasoning_tokens` | BIGINT | Reasoning token count (**Grok only:** last turn_completed `reasoningTokens`; other providers NULL) |
 | `slug` | VARCHAR | Session slug (Claude; Grok `summary.generated_title`) |
 | `git_branch` | VARCHAR | Git branch |
 | `cwd` | VARCHAR | Working directory |
@@ -217,9 +218,17 @@ Reads conversation/event data.
 > | `summary.head_branch` / `git_remotes[0]` / `git_root_dir` | `git_branch` / `repository` / `project_path` | |
 > | `reasoning.id` | `uuid` | Other message types leave uuid NULL |
 > | subagent `meta.json` | `is_agent` / `parent_uuid` | Child session → true; parent session id |
+> | `updates.jsonl` `turn_completed.usage.inputTokens` | `input_tokens` | Last usable snapshot; **session/prompt aggregate duplicated on every row** (not per-line) |
+> | `…outputTokens` | `output_tokens` | same |
+> | `…cachedReadTokens` | `cache_read_tokens` | same |
+> | `…reasoningTokens` | `reasoning_tokens` | Grok-only column; other providers NULL |
 >
-> **Known gaps:** `input_tokens`/`output_tokens`/`cache_*` stay NULL (not in
-> `chat_history`; `updates.jsonl` / headless usage is a future PR).
+> **Token source note:** Usage is cumulative within one user-prompt agent loop
+> (`numTurns` 1→N then resets). v1 stamps the **last** `turn_completed` usage
+> in `updates.jsonl` onto all conversation rows for that session. Do not sum
+> token columns across rows for a session — pick any row (or `MAX`/`ANY_VALUE`).
+> Sessions without `updates.jsonl` (or without `usage`) keep token columns NULL.
+> `cache_creation_tokens` is never set for Grok.
 
 ### `read_plans([path], [source])`
 

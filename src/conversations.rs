@@ -35,6 +35,8 @@ pub struct ConversationRow {
     output_tokens: Option<i64>,
     cache_creation_tokens: Option<i64>,
     cache_read_tokens: Option<i64>,
+    /// Grok-only: `updates.jsonl` turn_completed `reasoningTokens`. Other providers NULL.
+    reasoning_tokens: Option<i64>,
     slug: Option<String>,
     git_branch: Option<String>,
     cwd: Option<String>,
@@ -928,8 +930,11 @@ impl Conversations {
 // every row — same "session metadata backfill" technique as Copilot.
 //
 // Subagent children (linked via parent/subagents/<id>/meta.json) get
-// is_agent=true and parent_uuid=parent_session_id. Token columns stay NULL:
-// chat_history has no usage (updates.jsonl is out of scope).
+// is_agent=true and parent_uuid=parent_session_id.
+//
+// Token usage is not on chat_history lines. Sibling updates.jsonl turn_completed
+// events carry cumulative-per-prompt usage; we stamp the last usable snapshot
+// onto every row of the session (session/prompt aggregate, not per-message).
 
 impl Conversations {
     fn load_grok_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
@@ -940,6 +945,7 @@ impl Conversations {
         for (session_uuid, decoded_cwd, encoded_cwd, file_path) in &files {
             let session_dir = file_path.parent().unwrap_or(file_path);
             let summary = utils::read_grok_summary(session_dir);
+            let usage = utils::read_grok_last_turn_usage(session_dir);
 
             let session_ts = summary.as_ref().and_then(|s| s.created_at.clone());
             let git_branch = summary.as_ref().and_then(|s| s.head_branch.clone());
@@ -992,6 +998,11 @@ impl Conversations {
                     cwd: Some(decoded_cwd.clone()),
                     version: version.clone(),
                     repository: repository.clone(),
+                    // Session/prompt aggregate from last turn_completed (duplicated).
+                    input_tokens: usage.as_ref().and_then(|u| u.input_tokens),
+                    output_tokens: usage.as_ref().and_then(|u| u.output_tokens),
+                    cache_read_tokens: usage.as_ref().and_then(|u| u.cached_read_tokens),
+                    reasoning_tokens: usage.as_ref().and_then(|u| u.reasoning_tokens),
                     ..Default::default()
                 };
 
@@ -1130,7 +1141,8 @@ impl TableFunc for Conversations {
             vtab::varchar("tool_name"),     vtab::varchar("tool_use_id"),
             vtab::varchar("tool_input"),    vtab::bigint("input_tokens"),
             vtab::bigint("output_tokens"),  vtab::bigint("cache_creation_tokens"),
-            vtab::bigint("cache_read_tokens"), vtab::varchar("slug"),
+            vtab::bigint("cache_read_tokens"), vtab::bigint("reasoning_tokens"),
+            vtab::varchar("slug"),
             vtab::varchar("git_branch"),    vtab::varchar("cwd"),
             vtab::varchar("version"),       vtab::varchar("stop_reason"),
             vtab::varchar("reasoning_effort"), vtab::varchar("repository"),
@@ -1173,12 +1185,13 @@ impl TableFunc for Conversations {
         vtab::set_i64_opt(output, 18, idx, row.output_tokens);
         vtab::set_i64_opt(output, 19, idx, row.cache_creation_tokens);
         vtab::set_i64_opt(output, 20, idx, row.cache_read_tokens);
-        vtab::set_varchar_opt(output, 21, idx, row.slug.as_deref());
-        vtab::set_varchar_opt(output, 22, idx, row.git_branch.as_deref());
-        vtab::set_varchar_opt(output, 23, idx, row.cwd.as_deref());
-        vtab::set_varchar_opt(output, 24, idx, row.version.as_deref());
-        vtab::set_varchar_opt(output, 25, idx, row.stop_reason.as_deref());
-        vtab::set_varchar_opt(output, 26, idx, row.reasoning_effort.as_deref());
-        vtab::set_varchar_opt(output, 27, idx, row.repository.as_deref());
+        vtab::set_i64_opt(output, 21, idx, row.reasoning_tokens);
+        vtab::set_varchar_opt(output, 22, idx, row.slug.as_deref());
+        vtab::set_varchar_opt(output, 23, idx, row.git_branch.as_deref());
+        vtab::set_varchar_opt(output, 24, idx, row.cwd.as_deref());
+        vtab::set_varchar_opt(output, 25, idx, row.version.as_deref());
+        vtab::set_varchar_opt(output, 26, idx, row.stop_reason.as_deref());
+        vtab::set_varchar_opt(output, 27, idx, row.reasoning_effort.as_deref());
+        vtab::set_varchar_opt(output, 28, idx, row.repository.as_deref());
     }
 }

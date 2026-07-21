@@ -122,4 +122,60 @@ pub struct GrokSubagentMeta {
     pub effective_model_id: Option<String>,
 }
 
+// ─── Grok updates.jsonl (token usage) ───
+//
+// Sibling of chat_history.jsonl. Token usage is NOT on chat_history lines.
+// Final (or only) usage snapshot for a prompt lives on:
+//   params.update.sessionUpdate == "turn_completed"
+//   params.update.usage = { inputTokens, outputTokens, cachedReadTokens,
+//                           reasoningTokens, numTurns, ... }
+// Usage is cumulative within one user-prompt agent loop (numTurns 1→N), then
+// resets for the next prompt. Interactive sessions may emit one turn_completed
+// per prompt with the final cumulative totals.
+
+/// Envelope for one updates.jsonl line (other fields ignored).
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct GrokUpdatesLine {
+    pub params: Option<GrokUpdatesParams>,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct GrokUpdatesParams {
+    pub update: Option<GrokSessionUpdate>,
+}
+
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct GrokSessionUpdate {
+    #[serde(rename = "sessionUpdate")]
+    pub session_update: Option<String>,
+    pub usage: Option<GrokUsage>,
+}
+
+/// Token usage from turn_completed (camelCase keys as emitted by the CLI).
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct GrokUsage {
+    #[serde(rename = "inputTokens")]
+    pub input_tokens: Option<i64>,
+    #[serde(rename = "outputTokens")]
+    pub output_tokens: Option<i64>,
+    #[serde(rename = "cachedReadTokens")]
+    pub cached_read_tokens: Option<i64>,
+    #[serde(rename = "reasoningTokens")]
+    pub reasoning_tokens: Option<i64>,
+}
+
+impl GrokUsage {
+    /// True if any mapped token field is present (skip empty / zero-only task events).
+    pub fn has_any_tokens(&self) -> bool {
+        self.input_tokens.is_some()
+            || self.output_tokens.is_some()
+            || self.cached_read_tokens.is_some()
+            || self.reasoning_tokens.is_some()
+    }
+}
+
 // ─── Grok plan.md / plan_mode.json are handled by read_plans (plain markdown) ───
