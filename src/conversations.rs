@@ -12,7 +12,7 @@ use duckdb::core::DataChunkHandle;
 use std::io::{BufRead, BufReader};
 
 /// A flattened conversation row ready for output.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ConversationRow {
     source: String,
     session_id: String,
@@ -920,14 +920,19 @@ impl Conversations {
 
 // ─── Grok loading ───
 //
-// chat_history.jsonl is the transcript (no per-line timestamp/uuid). Session
-// metadata (timestamp, branch, model, repo) comes from summary.json in the same
-// directory and is applied to every row from that session — the same
-// "session metadata backfill" technique used for Copilot above.
+// chat_history.jsonl is the transcript (no per-line timestamp; reasoning has
+// `id`). Session metadata (timestamp, branch, model, repo, slug, version,
+// session-level reasoning_effort) comes from summary.json and is applied to
+// every row — same "session metadata backfill" technique as Copilot.
+//
+// Subagent children (linked via parent/subagents/<id>/meta.json) get
+// is_agent=true and parent_uuid=parent_session_id. Token columns stay NULL:
+// chat_history has no usage (updates.jsonl is out of scope).
 
 impl Conversations {
     fn load_grok_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
         let files = utils::discover_grok_session_files(base_path);
+        let subagent_parents = utils::discover_grok_subagent_parents(base_path);
         let mut rows = Vec::new();
 
         for (session_uuid, decoded_cwd, encoded_cwd, file_path) in &files {
@@ -941,10 +946,21 @@ impl Conversations {
                 .and_then(|s| s.git_remotes.as_ref())
                 .and_then(|r| r.first().cloned());
             let session_model = summary.as_ref().and_then(|s| s.current_model_id.clone());
+            let session_effort = summary.as_ref().and_then(|s| s.reasoning_effort.clone());
+            let slug = summary.as_ref().and_then(|s| s.generated_title.clone());
+            let version = summary.as_ref().and_then(|s| {
+                s.chat_format_version.as_ref().map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+            });
             let project_path = summary
                 .as_ref()
                 .and_then(|s| s.git_root_dir.clone())
                 .unwrap_or_else(|| decoded_cwd.clone());
+
+            let is_agent = subagent_parents.contains_key(session_uuid);
+            let parent_uuid = subagent_parents.get(session_uuid).cloned();
 
             let file = match std::fs::File::open(file_path) {
                 Ok(f) => f,
@@ -965,65 +981,131 @@ impl Conversations {
                     project_path: project_path.clone(),
                     project_dir: encoded_cwd.clone(),
                     file_name: "chat_history.jsonl".to_string(),
+                    is_agent,
                     line_number: file_line,
+                    parent_uuid: parent_uuid.clone(),
                     timestamp: session_ts.clone(),
+                    slug: slug.clone(),
                     git_branch: git_branch.clone(),
                     cwd: Some(decoded_cwd.clone()),
+                    version: version.clone(),
                     repository: repository.clone(),
                     ..Default::default()
                 };
 
-                let row = match serde_json::from_str::<GrokMessage>(&line) {
-                    Ok(msg) => Self::grok_message_to_row(msg, base, session_model.as_deref()),
-                    Err(e) => ConversationRow {
+                match serde_json::from_str::<GrokMessage>(&line) {
+                    Ok(msg) => {
+                        for row in Self::grok_message_to_rows(
+                            msg,
+                            base,
+                            session_model.as_deref(),
+                            session_effort.as_deref(),
+                        ) {
+                            rows.push(row);
+                        }
+                    }
+                    Err(e) => rows.push(ConversationRow {
                         message_type: "_parse_error".to_string(),
                         message_content: Some(format!("Parse error: {}", e)),
                         ..base
-                    },
-                };
-                rows.push(row);
+                    }),
+                }
             }
         }
         rows
     }
 
-    fn grok_message_to_row(
+    /// Serialize tool `arguments` (JSON string or object) to a stable varchar.
+    fn grok_tool_input(args: &Option<serde_json::Value>) -> Option<String> {
+        args.as_ref().map(|v| match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        })
+    }
+
+    /// Map one chat_history line to one or more rows.
+    /// Assistant with tool_calls → optional text row + one `tool_call` row per call
+    /// (Gemini-style multi-tool fan-out; first tool is no longer collapsed).
+    fn grok_message_to_rows(
         msg: GrokMessage,
         base: ConversationRow,
         session_model: Option<&str>,
-    ) -> ConversationRow {
+        session_effort: Option<&str>,
+    ) -> Vec<ConversationRow> {
         match msg {
-            GrokMessage::User(u) => ConversationRow {
+            GrokMessage::User(u) => vec![ConversationRow {
                 message_type: "user".to_string(),
                 message_role: Some("user".to_string()),
                 message_content: u.content.as_ref().map(utils::extract_text_content),
                 ..base
-            },
-            GrokMessage::Assistant(a) => {
-                let tool = a.tool_calls.first();
-                ConversationRow {
-                    message_type: "assistant".to_string(),
+            }],
+            GrokMessage::Reasoning(r) => {
+                // Like Codex: message_type=reasoning, role=assistant, summary text only.
+                let effort = r
+                    .reasoning_effort
+                    .or_else(|| session_effort.map(String::from));
+                vec![ConversationRow {
+                    message_type: "reasoning".to_string(),
                     message_role: Some("assistant".to_string()),
-                    message_content: a.content,
-                    model: a.model_id.or_else(|| session_model.map(String::from)),
-                    tool_name: tool.and_then(|t| t.name.clone()),
-                    tool_use_id: tool.and_then(|t| t.id.clone()),
-                    tool_input: tool.and_then(|t| t.arguments.as_ref().map(|v| v.to_string())),
+                    uuid: r.id,
+                    message_content: r.summary.as_ref().map(utils::extract_text_content),
+                    stop_reason: effort,
+                    model: session_model.map(String::from),
                     ..base
-                }
+                }]
             }
-            GrokMessage::ToolResult(t) => ConversationRow {
+            GrokMessage::Assistant(a) => {
+                let model = a
+                    .model_id
+                    .clone()
+                    .or_else(|| session_model.map(String::from));
+                let effort = a
+                    .reasoning_effort
+                    .or_else(|| session_effort.map(String::from));
+                let content = a
+                    .content
+                    .filter(|c| !c.is_empty());
+                let mut out = Vec::new();
+
+                // Text row when content is non-empty; if only tools, skip empty
+                // assistant shell (tool rows alone).
+                if content.is_some() || a.tool_calls.is_empty() {
+                    out.push(ConversationRow {
+                        message_type: "assistant".to_string(),
+                        message_role: Some("assistant".to_string()),
+                        message_content: content,
+                        model: model.clone(),
+                        stop_reason: effort.clone(),
+                        ..base.clone()
+                    });
+                }
+
+                for tc in &a.tool_calls {
+                    out.push(ConversationRow {
+                        message_type: "tool_call".to_string(),
+                        message_role: Some("tool".to_string()),
+                        model: model.clone(),
+                        stop_reason: effort.clone(),
+                        tool_name: tc.name.clone(),
+                        tool_use_id: tc.id.clone(),
+                        tool_input: Self::grok_tool_input(&tc.arguments),
+                        ..base.clone()
+                    });
+                }
+                out
+            }
+            GrokMessage::ToolResult(t) => vec![ConversationRow {
                 message_type: "tool_result".to_string(),
                 message_role: Some("tool".to_string()),
                 tool_use_id: t.tool_call_id,
                 message_content: t.content.as_ref().map(utils::extract_text_content),
                 ..base
-            },
-            GrokMessage::System(s) => ConversationRow {
+            }],
+            GrokMessage::System(s) => vec![ConversationRow {
                 message_type: "system".to_string(),
                 message_content: s.content.as_ref().map(utils::extract_text_content),
                 ..base
-            },
+            }],
         }
     }
 }

@@ -129,7 +129,13 @@ Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'co
 
 > **Codex** conversation data is read **only** from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. The `~/.codex/*.sqlite` files (app automation / logging / inbox) are intentionally ignored. Codex has no extra build dependencies.
 
-> **Grok** has no extra build dependencies. Its `chat_history.jsonl` transcript carries no per-message `uuid`/`parent_uuid`/`timestamp`; `timestamp` is backfilled from the session's `summary.json` (`created_at`), and `uuid`/`parent_uuid` are left `NULL` (consistent with the existing NULL-gap convention).
+> **Grok** has no extra build dependencies. Transcripts live at
+> `~/.grok/sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl` with
+> session metadata in a sibling `summary.json`. There is **no schema change** —
+> Grok maps only onto existing `read_conversations` columns (see field map
+> below). `encrypted_content` is never read. Token usage is **not** in
+> `chat_history` (and `updates.jsonl` is intentionally not parsed yet), so
+> `input_tokens` / `output_tokens` / `cache_*` stay `NULL` for interactive Grok.
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
@@ -140,20 +146,20 @@ Reads conversation/event data.
 - **Cursor:** `composerData:*` / `bubbleId:*` rows from `state.vscdb` (read with the pure-Rust `src/vscdb.rs` reader; one composer = one session)
 - **Codex:** JSONL rollout streams from `sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl`
 - **Gemini:** JSON chat checkpoints from `tmp/<project-hash>/chats/session-<ts>-<id>.json` (one file = one session; each tool call is also emitted as a `tool_call` row)
-- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata (timestamp, branch, model, repo) backfilled from the sibling `summary.json`
+- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata backfilled from the sibling `summary.json`. Subagent children linked via `…/<parent>/subagents/<child>/meta.json` set `is_agent=true` (and session-level `parent_uuid`).
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, or `'gemini'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, `'gemini'`, or `'grok'` |
 | `session_id` | VARCHAR | Session UUID |
 | `project_path` | VARCHAR | Project/working directory path |
-| `project_dir` | VARCHAR | Raw encoded directory name (Claude only) |
+| `project_dir` | VARCHAR | Raw encoded directory name (Claude / Grok cwd dir) |
 | `file_name` | VARCHAR | Source filename |
-| `is_agent` | BOOLEAN | Sub-agent conversation (Claude only) |
+| `is_agent` | BOOLEAN | Sub-agent conversation (Claude; Grok via subagent meta linkage) |
 | `line_number` | BIGINT | Line number within file (1-based) |
 | `message_type` | VARCHAR | See message type mappings below |
 | `uuid` | VARCHAR | Message/event UUID |
-| `parent_uuid` | VARCHAR | Parent message/event UUID |
+| `parent_uuid` | VARCHAR | Parent message/event UUID (Grok: parent session id on subagent rows) |
 | `timestamp` | VARCHAR | ISO 8601 timestamp |
 | `message_role` | VARCHAR | `user`, `assistant`, `tool`, or NULL |
 | `message_content` | VARCHAR | Text content |
@@ -161,39 +167,59 @@ Reads conversation/event data.
 | `tool_name` | VARCHAR | Tool called |
 | `tool_use_id` | VARCHAR | Tool use/call identifier |
 | `tool_input` | VARCHAR | Tool input as JSON string |
-| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation) |
-| `output_tokens` | BIGINT | Output token count |
+| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation; **NULL for Grok**) |
+| `output_tokens` | BIGINT | Output token count (**NULL for Grok**) |
 | `cache_creation_tokens` | BIGINT | Cache creation tokens (Claude only) |
 | `cache_read_tokens` | BIGINT | Cache read tokens (Claude; Gemini `cached`) |
-| `slug` | VARCHAR | Session slug (Claude only) |
+| `slug` | VARCHAR | Session slug (Claude; Grok `summary.generated_title`) |
 | `git_branch` | VARCHAR | Git branch |
 | `cwd` | VARCHAR | Working directory |
-| `version` | VARCHAR | Agent CLI version |
-| `stop_reason` | VARCHAR | Stop reason (Claude only) |
-| `repository` | VARCHAR | GitHub repository (Copilot only) |
+| `version` | VARCHAR | Agent CLI version (Grok: `summary.chat_format_version` as string) |
+| `stop_reason` | VARCHAR | Claude API stop reason; **Grok: per-message `reasoning_effort`** (`low`/`medium`/`high`/…) with session-level backfill |
+| `repository` | VARCHAR | GitHub repository (Copilot; Grok from `summary.git_remotes[0]`) |
 
 **Message type mappings:**
 
-| Claude | Copilot | Gemini | Description |
-|--------|---------|--------|-------------|
-| `user` | `user` | `user` | User message |
-| `assistant` | `assistant` | `assistant` (from `gemini`) | Assistant response |
-| `system` | — | — | System prompt |
-| `summary` | — | — | Conversation summary |
-| — | `reasoning` | — | Assistant reasoning |
-| — | `turn_start` / `turn_end` | — | Assistant turn boundaries |
-| — | `tool_start` / `tool_result` | `tool_call` | Tool execution events |
-| — | `session_start` / `session_resume` | — | Session lifecycle |
-| — | `session_info` / `session_error` | `info` / `error` | Session info/errors |
-| — | `truncation` / `model_change` | — | Context management |
-| — | `compaction_start` / `compaction_complete` | — | Context compaction |
-| — | `abort` | — | User cancellation |
+| Claude | Copilot | Gemini | Grok | Description |
+|--------|---------|--------|------|-------------|
+| `user` | `user` | `user` | `user` | User message |
+| `assistant` | `assistant` | `assistant` (from `gemini`) | `assistant` | Assistant response |
+| `system` | — | — | `system` | System prompt |
+| `summary` | — | — | — | Conversation summary |
+| — | `reasoning` | — | `reasoning` | Assistant reasoning (summary text only) |
+| — | `turn_start` / `turn_end` | — | — | Assistant turn boundaries |
+| — | `tool_start` / `tool_result` | `tool_call` | `tool_call` / `tool_result` | Tool execution events |
+| — | `session_start` / `session_resume` | — | — | Session lifecycle |
+| — | `session_info` / `session_error` | `info` / `error` | — | Session info/errors |
+| — | `truncation` / `model_change` | — | — | Context management |
+| — | `compaction_start` / `compaction_complete` | — | — | Context compaction |
+| — | `abort` | — | — | User cancellation |
 
 > **Gemini tool calls:** each assistant (`gemini`) turn may embed multiple
 > `toolCalls`. The first is surfaced inline on the assistant row (`tool_name` /
 > `tool_use_id` / `tool_input`), and every call additionally gets its own
 > `tool_call` row whose `parent_uuid` links back to the assistant message and
 > whose `message_content` holds the call status (`success` / `error` / `cancelled`).
+
+> **Grok field map (existing columns only — no new schema):**
+>
+> | Grok source | Column | Notes |
+> |-------------|--------|--------|
+> | `type` | `message_type` | `system` / `user` / `reasoning` / `assistant` / `tool_result`; each `tool_calls[]` → `tool_call` |
+> | `content` / `summary[].text` | `message_content` | User may be string or `{type,text}` blocks; reasoning uses summary text only (never `encrypted_content`) |
+> | `model_id` (else `summary.current_model_id`) | `model` | |
+> | `tool_calls[].name/id/arguments` | `tool_name` / `tool_use_id` / `tool_input` | One row per call; string or object args → stable string |
+> | `reasoning_effort` (message, else summary) | `stop_reason` | Grok-only reuse of existing varchar |
+> | `summary.generated_title` | `slug` | Session title |
+> | `summary.chat_format_version` | `version` | Stringified |
+> | `summary.created_at` | `timestamp` | Session-level backfill |
+> | `summary.head_branch` / `git_remotes[0]` / `git_root_dir` | `git_branch` / `repository` / `project_path` | |
+> | `reasoning.id` | `uuid` | Other message types leave uuid NULL |
+> | subagent `meta.json` | `is_agent` / `parent_uuid` | Child session → true; parent session id |
+>
+> **Known gaps:** `input_tokens`/`output_tokens`/`cache_*` stay NULL (not in
+> `chat_history`; `updates.jsonl` / headless usage is a future PR). No new
+> columns for `reasoning_effort` (lives in `stop_reason` for `source='grok'`).
 
 ### `read_plans([path], [source])`
 
@@ -353,7 +379,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-406 pinned assertions across 20 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
+417 pinned assertions across 20 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
 
 ## Building from Source
 

@@ -5,19 +5,20 @@
 require agent_data
 
 # ============================================================
-# Row counts (8 messages across 2 sessions: 6 + 2)
+# Row counts (14 messages across 3 sessions: 10 + 2 + 2)
+# parent multi-tool fan-out + reasoning + subagent child
 # ============================================================
 
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok');
 ----
-8
+14
 
-# 2 distinct sessions
+# 3 distinct sessions (parent, simple, subagent child)
 query I
 SELECT COUNT(DISTINCT session_id) FROM read_conversations(path='test/data_grok');
 ----
-2
+3
 
 # ============================================================
 # Source column
@@ -32,7 +33,7 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE source != '
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok', source='grok');
 ----
-8
+14
 
 # ============================================================
 # Session breakdown
@@ -42,8 +43,9 @@ query II
 SELECT session_id, COUNT(*) AS cnt FROM read_conversations(path='test/data_grok')
 GROUP BY session_id ORDER BY session_id;
 ----
-aaaa1111-0000-0000-0000-000000000001	6
+aaaa1111-0000-0000-0000-000000000001	10
 bbbb2222-0000-0000-0000-000000000002	2
+cccc3333-0000-0000-0000-000000000003	2
 
 # ============================================================
 # Message types
@@ -53,10 +55,12 @@ query II
 SELECT message_type, COUNT(*) AS cnt FROM read_conversations(path='test/data_grok')
 GROUP BY message_type ORDER BY message_type;
 ----
-assistant	3
+assistant	4
+reasoning	1
 system	1
-tool_result	1
-user	3
+tool_call	2
+tool_result	2
+user	4
 
 # ============================================================
 # Column invariants
@@ -75,15 +79,28 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE message_typ
 ----
 0
 
-# Grok uuid is always NULL (no per-message id in chat_history.jsonl)
+# Only reasoning rows carry uuid (from reasoning.id); others NULL
 query I
-SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE uuid IS NOT NULL;
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'reasoning' AND uuid IS NULL;
 ----
 0
 
-# Grok slug is always NULL
 query I
-SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE slug IS NOT NULL;
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type != 'reasoning' AND uuid IS NOT NULL;
+----
+0
+
+# slug backfilled from summary.generated_title on every row
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE slug IS NULL;
+----
+0
+
+# version backfilled from summary.chat_format_version
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE version IS NULL;
 ----
 0
 
@@ -93,11 +110,19 @@ SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE timestamp I
 ----
 0
 
+# Token columns always NULL (chat_history has no usage; updates.jsonl out of scope)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE input_tokens IS NOT NULL OR output_tokens IS NOT NULL
+   OR cache_creation_tokens IS NOT NULL OR cache_read_tokens IS NOT NULL;
+----
+0
+
 # ============================================================
 # Content + role mapping
 # ============================================================
 
-# User messages have content and role=user
+# User messages have content and role=user (string or text-block array)
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
 WHERE message_type = 'user' AND (message_content IS NULL OR message_role != 'user');
@@ -111,6 +136,22 @@ WHERE message_type = 'assistant' AND message_role != 'assistant';
 ----
 0
 
+# Reasoning: message_type=reasoning, role=assistant, summary text only (no encrypted)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'reasoning'
+  AND (message_role != 'assistant'
+       OR message_content IS NULL
+       OR message_content LIKE '%enc_REDACTED%');
+----
+0
+
+query T
+SELECT message_content FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'reasoning';
+----
+User wants a simple hello world helper.
+
 # Tool results carry role=tool and a tool_use_id, but no tool_name
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
@@ -120,15 +161,70 @@ WHERE message_type = 'tool_result'
 0
 
 # ============================================================
-# Tool calls (assistant.tool_calls[0])
+# Multi-tool fan-out (one tool_call row per tool_calls entry)
 # ============================================================
 
 query III
 SELECT tool_name, tool_use_id, (tool_input IS NOT NULL) AS has_input
 FROM read_conversations(path='test/data_grok')
-WHERE tool_name IS NOT NULL;
+WHERE message_type = 'tool_call'
+ORDER BY tool_use_id;
 ----
 create_file	call_001	true
+run_terminal_command	call_002	true
+
+# Assistant text rows do not double-count tool_* fields
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'assistant' AND tool_name IS NOT NULL;
+----
+0
+
+# String-form tool arguments are stored as the raw string (not re-quoted JSON)
+query T
+SELECT tool_input FROM read_conversations(path='test/data_grok')
+WHERE message_type = 'tool_call' AND tool_use_id = 'call_002';
+----
+{"command":"python -c \"print(1)\""}
+
+# ============================================================
+# reasoning_effort → stop_reason (Grok-only mapping)
+# ============================================================
+
+# Message-level effort on assistant/tool_call rows in the parent session
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND message_type IN ('assistant', 'tool_call')
+  AND stop_reason != 'high';
+----
+0
+
+# Session-level effort backfills when message has none (beta assistant → low)
+query T
+SELECT stop_reason FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'bbbb2222-0000-0000-0000-000000000002'
+  AND message_type = 'assistant';
+----
+low
+
+# ============================================================
+# Subagent linkage (is_agent + parent_uuid)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'cccc3333-0000-0000-0000-000000000003'
+  AND (is_agent = false OR parent_uuid != 'aaaa1111-0000-0000-0000-000000000001');
+----
+0
+
+# Parent session is not marked is_agent
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001' AND is_agent = true;
+----
+0
 
 # ============================================================
 # Session metadata from summary.json
@@ -141,6 +237,7 @@ ORDER BY session_id;
 ----
 aaaa1111-0000-0000-0000-000000000001	feature/hello
 bbbb2222-0000-0000-0000-000000000002	main
+cccc3333-0000-0000-0000-000000000003	feature/hello
 
 # repository populated from summary.git_remotes[0]
 query I
@@ -156,12 +253,18 @@ WHERE model IS NOT NULL;
 ----
 2
 
-# cwd is the url-decoded session directory
+# cwd is the url-decoded session directory (parent + child under alpha)
 query I
 SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
 WHERE cwd = '/Users/testuser/project-alpha';
 ----
-6
+12
+
+# slug matches generated_title
+query I
+SELECT COUNT(DISTINCT slug) FROM read_conversations(path='test/data_grok');
+----
+3
 
 # ============================================================
 # No parse errors

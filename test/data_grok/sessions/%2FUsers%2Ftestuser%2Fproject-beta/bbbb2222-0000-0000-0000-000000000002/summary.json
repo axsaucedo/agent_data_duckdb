@@ -6,5 +6,6 @@
   "head_branch": "main",
   "git_root_dir": "/Users/testuser/project-beta",
   "git_remotes": ["git@github.com:testuser/project-beta.git"],
-  "generated_title": "Arithmetic question"
+  "generated_title": "Arithmetic question",
+  "reasoning_effort": "low"
 }

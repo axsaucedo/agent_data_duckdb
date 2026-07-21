@@ -1,6 +1,8 @@
 {"type":"system","content":"You are Grok, a coding agent."}
 {"type":"user","content":[{"type":"text","text":"Add a hello world function."}]}
-{"type":"assistant","content":"I'll add it now.","reasoning":"The user wants a simple function.","model_id":"grok-build","model_fingerprint":"fp_abc123","tool_calls":[{"id":"call_001","name":"create_file","arguments":{"path":"hello.py","contents":"def hello():\n    return 'world'"}}]}
+{"type":"reasoning","id":"rs_aaa001","summary":[{"type":"summary_text","text":"User wants a simple hello world helper."}],"encrypted_content":"enc_REDACTED","status":"completed"}
+{"type":"assistant","content":"I'll add it now.","model_id":"grok-4.5-build","model_fingerprint":"fp_abc123","reasoning_effort":"high","tool_calls":[{"id":"call_001","name":"create_file","arguments":{"path":"hello.py","contents":"def hello():\n    return 'world'"}},{"id":"call_002","name":"run_terminal_command","arguments":"{\"command\":\"python -c \\\"print(1)\\\"\"}"}]}
 {"type":"tool_result","tool_call_id":"call_001","content":"File created: hello.py"}
-{"type":"assistant","content":"Done. The function is ready.","reasoning":"Created the file.","model_id":"grok-build","model_fingerprint":"fp_abc123"}
-{"type":"user","content":[{"type":"text","text":"Thanks!"}],"synthetic_reason":"user_followup"}
+{"type":"tool_result","tool_call_id":"call_002","content":"1"}
+{"type":"assistant","content":"Done. The function is ready.","model_id":"grok-4.5-build","model_fingerprint":"fp_abc123","reasoning_effort":"high"}
+{"type":"user","content":"Thanks!","synthetic_reason":"user_followup"}

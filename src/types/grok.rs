@@ -4,9 +4,15 @@ use serde::Deserialize;
 //
 // Each session lives at:
 //   ~/.grok/sessions/<url-encoded-cwd>/<session-uuid>/chat_history.jsonl
-// Lines are tagged by `type`: user | assistant | tool_result | system.
-// chat_history lines carry NO per-message timestamp or id; session metadata
-// (timestamp, git branch, model, repo) is read from summary.json in the same dir.
+// Lines are tagged by `type`: system | user | reasoning | assistant | tool_result.
+// chat_history lines carry NO per-message timestamp and (except reasoning `id`)
+// no stable uuid. Session metadata (timestamp, git branch, model, repo, title,
+// format version) is read from summary.json in the same dir.
+//
+// Subagents: parent session may contain
+//   subagents/<child_uuid>/meta.json
+// linking parent_session_id ↔ child_session_id. The child also has its own
+// top-level session directory under the same encoded cwd.
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(tag = "type")]
@@ -19,6 +25,8 @@ pub enum GrokMessage {
     ToolResult(GrokToolResult),
     #[serde(rename = "system")]
     System(GrokSystemMessage),
+    #[serde(rename = "reasoning")]
+    Reasoning(GrokReasoningMessage),
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -36,6 +44,8 @@ pub struct GrokAssistantMessage {
     pub reasoning: Option<String>,
     pub model_id: Option<String>,
     pub model_fingerprint: Option<String>,
+    /// Per-message effort (low|medium|high|xhigh|…). Mapped to `stop_reason`.
+    pub reasoning_effort: Option<String>,
     #[serde(default)]
     pub tool_calls: Vec<GrokToolCall>,
 }
@@ -44,6 +54,8 @@ pub struct GrokAssistantMessage {
 pub struct GrokToolCall {
     pub id: Option<String>,
     pub name: Option<String>,
+    /// May be a JSON string or an object — serialized to a stable string for
+    /// `tool_input` (string payloads keep their raw text; objects use JSON).
     pub arguments: Option<serde_json::Value>,
 }
 
@@ -60,6 +72,19 @@ pub struct GrokSystemMessage {
     pub content: Option<serde_json::Value>,
 }
 
+/// Assistant chain-of-thought summary. `encrypted_content` is intentionally
+/// ignored (never mapped).
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct GrokReasoningMessage {
+    pub id: Option<String>,
+    /// Array of `{type:"summary_text", text:"…"}` blocks (same shape Codex uses).
+    pub summary: Option<serde_json::Value>,
+    pub status: Option<String>,
+    /// Per-message effort when present on the reasoning line.
+    pub reasoning_effort: Option<String>,
+}
+
 // ─── Grok summary.json (per-session metadata) ───
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -67,13 +92,34 @@ pub struct GrokSystemMessage {
 pub struct GrokSummary {
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
+    pub last_active_at: Option<String>,
     pub current_model_id: Option<String>,
     pub head_branch: Option<String>,
     pub git_root_dir: Option<String>,
     /// origin/remote URLs; first entry used as `repository`.
     pub git_remotes: Option<Vec<String>>,
+    /// Session title → `slug`.
     pub generated_title: Option<String>,
-    pub chat_format_version: Option<i64>,
+    /// Format version → `version` (as string).
+    pub chat_format_version: Option<serde_json::Value>,
+    /// Session-level effort; backfills `stop_reason` when the message has none.
+    pub reasoning_effort: Option<String>,
+    pub agent_name: Option<String>,
+}
+
+// ─── Grok subagent meta.json ───
+//
+// Path: sessions/<cwd>/<parent_uuid>/subagents/<child_uuid>/meta.json
+// Child transcript lives at sessions/<cwd>/<child_uuid>/chat_history.jsonl.
+
+#[derive(Deserialize, Debug, Clone, Default)]
+#[serde(default)]
+pub struct GrokSubagentMeta {
+    pub parent_session_id: Option<String>,
+    pub child_session_id: Option<String>,
+    pub subagent_type: Option<String>,
+    pub description: Option<String>,
+    pub effective_model_id: Option<String>,
 }
 
 // ─── Grok plan.md / plan_mode.json are handled by read_plans (plain markdown) ───

@@ -585,6 +585,8 @@ pub fn read_gemini_project_map(base_path: &Path) -> std::collections::HashMap<St
 /// Discover Grok chat_history.jsonl files.
 /// Layout: <base>/sessions/<url-encoded-cwd>/<session-uuid>/chat_history.jsonl
 /// Returns (session_uuid, decoded_cwd, encoded_cwd, file_path) tuples, sorted.
+/// Nested `subagents/` directories are not sessions themselves (the child has
+/// its own top-level session dir under the same encoded cwd).
 pub fn discover_grok_session_files(base_path: &Path) -> Vec<(String, String, String, PathBuf)> {
     let sessions_dir = base_path.join("sessions");
     let mut results = Vec::new();
@@ -609,6 +611,7 @@ pub fn discover_grok_session_files(base_path: &Path) -> Vec<(String, String, Str
             .flatten()
             .filter_map(|e| e.ok())
             .filter(|e| e.path().is_dir())
+            .filter(|e| e.file_name() != "subagents")
             .collect();
         session_dirs.sort_by_key(|e| e.file_name());
 
@@ -621,6 +624,71 @@ pub fn discover_grok_session_files(base_path: &Path) -> Vec<(String, String, Str
         }
     }
     results
+}
+
+/// Map child_session_id → parent_session_id from
+/// `sessions/<cwd>/<parent>/subagents/<child>/meta.json`.
+/// Used to set `is_agent` (and optional session-level `parent_uuid`) on child rows.
+pub fn discover_grok_subagent_parents(
+    base_path: &Path,
+) -> std::collections::HashMap<String, String> {
+    use crate::types::grok::GrokSubagentMeta;
+
+    let sessions_dir = base_path.join("sessions");
+    let mut map = std::collections::HashMap::new();
+    if !sessions_dir.is_dir() {
+        return map;
+    }
+
+    let cwd_dirs = std::fs::read_dir(&sessions_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir());
+
+    for cwd_entry in cwd_dirs {
+        let parent_dirs = std::fs::read_dir(cwd_entry.path())
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir());
+
+        for parent_entry in parent_dirs {
+            let subagents = parent_entry.path().join("subagents");
+            if !subagents.is_dir() {
+                continue;
+            }
+            let child_dirs = std::fs::read_dir(&subagents)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir());
+
+            for child_entry in child_dirs {
+                let meta_path = child_entry.path().join("meta.json");
+                let content = match std::fs::read_to_string(&meta_path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let meta: GrokSubagentMeta = match serde_json::from_str(&content) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let parent = meta
+                    .parent_session_id
+                    .or_else(|| {
+                        Some(parent_entry.file_name().to_string_lossy().to_string())
+                    });
+                let child = meta.child_session_id.or_else(|| {
+                    Some(child_entry.file_name().to_string_lossy().to_string())
+                });
+                if let (Some(p), Some(c)) = (parent, child) {
+                    map.insert(c, p);
+                }
+            }
+        }
+    }
+    map
 }
 
 /// Read a Grok session's summary.json (sibling of chat_history.jsonl).
