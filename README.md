@@ -402,7 +402,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-417 pinned assertions across 20 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
+433 pinned assertions across 21 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, Grok stats, and parse error handling.
 
 ## Building from Source
 
