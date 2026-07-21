@@ -341,10 +341,9 @@ WHERE typeof(line_number) != 'BIGINT' OR line_number <= 0;
 ----
 0
 
-# uuid is NULL except reasoning rows (reasoning.id); tokens always NULL
+# uuid always present (real reasoning.id or synthetic session:line); tokens NULL
 query I
-SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
-WHERE message_type != 'reasoning' AND uuid IS NOT NULL;
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE uuid IS NULL;
 ----
 0
 

@@ -3,6 +3,7 @@ use crate::types::claude::StatsCache;
 use crate::utils;
 use crate::vtab::{self, ColDef, TableFunc};
 use duckdb::core::DataChunkHandle;
+use std::collections::BTreeMap;
 
 pub struct StatsRow {
     source: String,
@@ -13,6 +14,65 @@ pub struct StatsRow {
 }
 
 pub struct Stats;
+
+impl Stats {
+    /// Grok has no stats-cache.json. Roll up per-session `signals.json` (+
+    /// summary fallbacks) into the existing daily stats columns — one row per
+    /// date, rejectable by maintainers (no new table function).
+    fn load_grok_rows(base_path: &std::path::Path) -> Vec<StatsRow> {
+        // date → (messages, sessions, tool_calls)
+        let mut by_date: BTreeMap<String, (i64, i64, i64)> = BTreeMap::new();
+
+        for (_session_uuid, _cwd, _enc, chat_path) in utils::discover_grok_session_files(base_path)
+        {
+            let session_dir = chat_path.parent().unwrap_or(&chat_path);
+            let summary = utils::read_grok_summary(session_dir);
+            let signals = utils::read_grok_signals(session_dir);
+
+            let date = summary
+                .as_ref()
+                .and_then(|s| s.created_at.as_deref())
+                .and_then(utils::grok_date_from_timestamp)
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let message_count = signals
+                .as_ref()
+                .map(|sig| {
+                    let u = sig.user_message_count.unwrap_or(0);
+                    let a = sig.assistant_message_count.unwrap_or(0);
+                    if u > 0 || a > 0 {
+                        u + a
+                    } else {
+                        sig.turn_count.unwrap_or(0)
+                    }
+                })
+                .filter(|&n| n > 0)
+                .or_else(|| summary.as_ref().and_then(|s| s.num_messages))
+                .unwrap_or(0);
+
+            let tool_call_count = signals
+                .as_ref()
+                .and_then(|s| s.tool_call_count)
+                .unwrap_or(0);
+
+            let entry = by_date.entry(date).or_insert((0, 0, 0));
+            entry.0 += message_count;
+            entry.1 += 1;
+            entry.2 += tool_call_count;
+        }
+
+        by_date
+            .into_iter()
+            .map(|(date, (message_count, session_count, tool_call_count))| StatsRow {
+                source: "grok".to_string(),
+                date,
+                message_count,
+                session_count,
+                tool_call_count,
+            })
+            .collect()
+    }
+}
 
 impl TableFunc for Stats {
     type Row = StatsRow;
@@ -48,15 +108,14 @@ impl TableFunc for Stats {
                     tool_call_count: day.tool_call_count.unwrap_or(0),
                 }).collect()
             }
-            // Only Claude ships a precomputed stats-cache.json. Copilot, Claude
-            // Desktop, Cursor, Codex, Gemini, and Grok stats can be derived in
-            // SQL from read_conversations() instead; return empty here.
+            Provider::Grok => Self::load_grok_rows(&base_path),
+            // Only Claude ships stats-cache.json; Grok rolls up signals.json.
+            // Other providers: derive in SQL from read_conversations() instead.
             Provider::ClaudeDesktop
             | Provider::Copilot
             | Provider::Cursor
             | Provider::Codex
             | Provider::Gemini
-            | Provider::Grok
             | Provider::Unknown => Vec::new(),
         }
     }

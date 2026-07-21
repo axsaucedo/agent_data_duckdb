@@ -131,10 +131,11 @@ Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'co
 
 > **Grok** has no extra build dependencies. Transcripts live at
 > `~/.grok/sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl` with
-> session metadata in a sibling `summary.json`. There is **no schema change** —
-> Grok maps only onto existing `read_conversations` columns (see field map
-> below). `encrypted_content` is never read. Token usage is **not** in
-> `chat_history` (and `updates.jsonl` is intentionally not parsed yet), so
+> session metadata in a sibling `summary.json` (and optional `signals.json` for
+> `read_stats`). There is **no schema change** — Grok maps only onto existing
+> `read_conversations` / `read_stats` columns (see field map below).
+> `encrypted_content` is never read. Token usage is **not** in `chat_history`
+> (and `updates.jsonl` token join is intentionally not parsed yet), so
 > `input_tokens` / `output_tokens` / `cache_*` stay `NULL` for interactive Grok.
 
 ### `read_conversations([path (opt)], [source (opt)])`
@@ -212,14 +213,20 @@ Reads conversation/event data.
 > | `reasoning_effort` (message, else summary) | `stop_reason` | Grok-only reuse of existing varchar |
 > | `summary.generated_title` | `slug` | Session title |
 > | `summary.chat_format_version` | `version` | Stringified |
-> | `summary.created_at` | `timestamp` | Session-level backfill |
+> | `summary.last_active_at` → `updated_at` → `created_at` | `timestamp` | **Session-level only** (chat_history has no per-message ts; `created_at` is the floor) |
 > | `summary.head_branch` / `git_remotes[0]` / `git_root_dir` | `git_branch` / `repository` / `project_path` | |
-> | `reasoning.id` | `uuid` | Other message types leave uuid NULL |
+> | `reasoning.id`, else synthetic | `uuid` | Prefer real id; else `{session_id}:{line_number}` so uuid is never NULL |
 > | subagent `meta.json` | `is_agent` / `parent_uuid` | Child session → true; parent session id |
 >
+> **Synthetic uuid form:** `{session_id}:{line_number}` (1-based chat_history line).
+> Multi-row fan-out from one assistant line (text + tool_call rows) shares that
+> line's uuid.
+>
 > **Known gaps:** `input_tokens`/`output_tokens`/`cache_*` stay NULL (not in
-> `chat_history`; `updates.jsonl` / headless usage is a future PR). No new
-> columns for `reasoning_effort` (lives in `stop_reason` for `source='grok'`).
+> `chat_history`; `updates.jsonl` token join is a future PR). Per-message
+> timestamps are not inventable cheaply (`updates.jsonl` wall-clock events do
+> not 1:1-align with transcript lines). No new columns for `reasoning_effort`
+> (lives in `stop_reason` for `source='grok'`).
 
 ### `read_plans([path], [source])`
 
@@ -272,11 +279,18 @@ Reads command history.
 
 ### `read_stats([path], [source])`
 
-Reads daily activity stats. Currently Claude only — returns empty for Copilot, Claude Desktop, and Gemini.
+Reads daily activity stats.
+- **Claude:** `stats-cache.json` daily activity
+- **Grok:** rolls up per-session `signals.json` (+ `summary` fallbacks) by
+  `summary.created_at` date into the same columns (no new table function).
+  `message_count` = `userMessageCount + assistantMessageCount` (else
+  `summary.num_messages`); `tool_call_count` = `signals.toolCallCount`;
+  `session_count` = sessions on that date. Other providers return empty
+  (derive from `read_conversations()` in SQL instead).
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'` |
+| `source` | VARCHAR | `'claude'` or `'grok'` |
 | `date` | VARCHAR | Date (YYYY-MM-DD) |
 | `message_count` | BIGINT | Messages sent that day |
 | `session_count` | BIGINT | Sessions started that day |
