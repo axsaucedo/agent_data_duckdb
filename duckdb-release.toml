@@ -1,7 +1,7 @@
 [duckdb]
-version = "v1.5.4"
-python_version = "1.5.4"
-crate_version = "1.10504.0"
+version = "v1.5.5"
+python_version = "1.5.5"
+crate_version = "1.10505.0"
 
 [ci]
 tools_ref = "v1.5-variegata"
