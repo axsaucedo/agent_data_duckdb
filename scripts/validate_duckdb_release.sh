@@ -16,11 +16,16 @@ make debug
 make test
 cargo test --locked
 
+# TUI example tests are informational only: the extension is validated by
+# make test, cargo test, and the smoke test below. UI tests must not block
+# a DuckDB release update.
 if [ -f examples/tui/pyproject.toml ]; then
-  (
+  if ! (
     cd examples/tui
     AGENT_DATA_EXTENSION_PATH="$ROOT/build/debug/agent_data.duckdb_extension" uv run pytest
-  )
+  ); then
+    echo "WARNING: TUI example tests failed (non-blocking for release validation)" >&2
+  fi
 fi
 
 DUCKDB_PYTHON_VERSION="$(

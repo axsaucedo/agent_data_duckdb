@@ -239,8 +239,8 @@ class BrowserScreen(Static):
                 if not df.empty:
                     df["_path"] = path
                     all_dfs.append(df)
-            except Exception:
-                pass
+            except Exception as exc:
+                self.log.error(f"Failed to load sessions from {path}: {exc}")
 
         if all_dfs:
             return pd.concat(all_dfs, ignore_index=True).sort_values(

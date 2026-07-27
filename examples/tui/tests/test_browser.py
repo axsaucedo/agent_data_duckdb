@@ -38,6 +38,9 @@ class TestBrowserScreen:
     async def test_session_table_has_rows(self, app):
         async with app.run_test() as pilot:
             await pilot.press("2")
+            # Rows are populated by a background thread worker; wait for it
+            # instead of racing it with a single pause.
+            await app.workers.wait_for_complete()
             await pilot.pause()
             table = app.query_one("#session-table", DataTable)
             assert table.row_count > 0
