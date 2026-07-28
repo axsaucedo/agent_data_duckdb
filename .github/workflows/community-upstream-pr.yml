@@ -29,4 +29,5 @@ jobs:
           gh repo sync axsaucedo/community-extensions --source duckdb/community-extensions
           git clone "https://x-access-token:${GH_TOKEN}@github.com/axsaucedo/community-extensions.git" tmp/community-extensions
           python3 scripts/prepare_community_extension_pr.py --open-pr \
+            --branch "bump-agent-data-${GITHUB_SHA:0:12}" \
             --source-pr-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
