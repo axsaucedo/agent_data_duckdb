@@ -85,6 +85,9 @@ jobs:
         if: steps.drift.outputs.status == 'drift' && github.event_name != 'pull_request'
         uses: peter-evans/create-pull-request@v7
         with:
+          # PAT with workflow permission: the update edits
+          # MainDistributionPipeline.yml, which GITHUB_TOKEN cannot push.
+          token: ${{ secrets.RELEASE_PR_TOKEN }}
           branch: automation/duckdb-release-update
           title: "chore: update DuckDB release target"
           body: |
