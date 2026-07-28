@@ -1,0 +1,32 @@
+name: Community Extension Upstream PR
+
+# Opens a duckdb/community-extensions PR bumping the agent_data descriptor
+# ref whenever a DuckDB release update lands on main. This is the actual
+# publish step: users install from community-extensions, not from this repo.
+on:
+  push:
+    branches: [main]
+    paths:
+      - duckdb-release.toml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upstream-pr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Open upstream community-extensions PR
+        env:
+          # PAT with access to the axsaucedo/community-extensions fork.
+          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          gh repo sync axsaucedo/community-extensions --source duckdb/community-extensions
+          git clone "https://x-access-token:${GH_TOKEN}@github.com/axsaucedo/community-extensions.git" tmp/community-extensions
+          python3 scripts/prepare_community_extension_pr.py --open-pr \
+            --source-pr-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
