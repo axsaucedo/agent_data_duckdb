@@ -1,8 +1,10 @@
-name: Community Extension Upstream PR
+name: Community Extension Upstream Publish Reminder
 
-# Opens a duckdb/community-extensions PR bumping the agent_data descriptor
-# ref whenever a DuckDB release update lands on main. This is the actual
-# publish step: users install from community-extensions, not from this repo.
+# When a DuckDB release update lands on main, file an issue reminding the
+# maintainer to publish upstream. The actual duckdb/community-extensions PR
+# is opened locally (see the /create-upstream-release skill): a fine-grained
+# PAT cannot write to repos outside the account, and we deliberately avoid
+# storing a broad classic PAT in the repo.
 on:
   push:
     branches: [main]
@@ -12,22 +14,33 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
-  upstream-pr:
+  publish-reminder:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Open upstream community-extensions PR
+      - name: File upstream publish issue
         env:
-          # PAT with access to the axsaucedo/community-extensions fork.
-          GH_TOKEN: ${{ secrets.RELEASE_PR_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          gh repo sync axsaucedo/community-extensions --source duckdb/community-extensions
-          git clone "https://x-access-token:${GH_TOKEN}@github.com/axsaucedo/community-extensions.git" tmp/community-extensions
-          python3 scripts/prepare_community_extension_pr.py --open-pr \
-            --branch "bump-agent-data-${GITHUB_SHA:0:12}" \
-            --source-pr-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}"
+          version="$(python3 -c 'import tomllib; print(tomllib.load(open("duckdb-release.toml","rb"))["duckdb"]["version"])')"
+          title="Publish agent_data for DuckDB ${version} to community-extensions"
+          body="Release ${version} landed on main (${GITHUB_SHA}).
+
+          To publish upstream, run the \`/create-upstream-release\` skill in Claude Code, or manually:
+
+          \`\`\`
+          git checkout main && git pull
+          python3 scripts/prepare_community_extension_pr.py --open-pr --branch bump-agent-data-${GITHUB_SHA:0:12}
+          \`\`\`
+
+          Close this issue once the duckdb/community-extensions PR is open."
+          existing="$(gh issue list --state open --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body" --assignee axsaucedo
+          fi

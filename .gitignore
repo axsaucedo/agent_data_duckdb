@@ -99,7 +99,9 @@ configure/
 *.duckdb
 
 # AI
-.claude
+.claude/*
+# but keep versioned project skills
+!.claude/skills/
 # but keep the Claude Desktop test fixtures, whose realistic on-disk layout
 # nests transcripts under .claude/projects/
 !test/data_claude_desktop/**
