@@ -917,6 +917,314 @@ impl Conversations {
     }
 }
 
+// ─── Cursor agent-transcripts (CLI / projects layout) ───
+//
+// Path: ~/.cursor/projects/<project>/agent-transcripts/<session-id>/<session-id>.jsonl
+// Lines: {"role":"user"|"assistant","message":{"content":[...]}}
+
+impl Conversations {
+    fn load_cursor_agent_transcript_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let projects = base_path.join("projects");
+        if !projects.is_dir() {
+            return Vec::new();
+        }
+        let mut rows = Vec::new();
+        let mut project_dirs: Vec<_> = std::fs::read_dir(&projects)
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .collect();
+        project_dirs.sort_by_key(|e| e.file_name());
+
+        for pe in project_dirs {
+            let project_dir = pe.file_name().to_string_lossy().to_string();
+            let at = pe.path().join("agent-transcripts");
+            if !at.is_dir() {
+                continue;
+            }
+            let mut sessions: Vec<_> = std::fs::read_dir(&at)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir())
+                .collect();
+            sessions.sort_by_key(|e| e.file_name());
+
+            for se in sessions {
+                let session_id = se.file_name().to_string_lossy().to_string();
+                let jsonl = se.path().join(format!("{session_id}.jsonl"));
+                let path = if jsonl.is_file() {
+                    jsonl
+                } else {
+                    // any *.jsonl in the session dir
+                    match std::fs::read_dir(se.path())
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|e| e.ok())
+                        .find(|e| e.path().extension().map_or(false, |x| x == "jsonl"))
+                    {
+                        Some(f) => f.path(),
+                        None => continue,
+                    }
+                };
+                let file = match std::fs::File::open(&path) {
+                    Ok(f) => f,
+                    Err(_) => continue,
+                };
+                let file_name = path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().to_string())
+                    .unwrap_or_default();
+                for (line_number, line) in BufReader::new(file).lines().flatten().enumerate() {
+                    let line = line.trim().to_string();
+                    if line.is_empty() {
+                        continue;
+                    }
+                    let v: serde_json::Value = match serde_json::from_str(&line) {
+                        Ok(v) => v,
+                        Err(_) => continue,
+                    };
+                    let role = v
+                        .get("role")
+                        .and_then(|r| r.as_str())
+                        .unwrap_or("unknown");
+                    let content = v
+                        .get("message")
+                        .and_then(|m| m.get("content"))
+                        .map(utils::extract_text_content);
+                    rows.push(ConversationRow {
+                        source: "cursor".to_string(),
+                        session_id: session_id.clone(),
+                        project_path: project_dir.clone(),
+                        project_dir: project_dir.clone(),
+                        file_name: file_name.clone(),
+                        line_number: line_number as i64 + 1,
+                        message_type: role.to_string(),
+                        message_role: Some(role.to_string()),
+                        message_content: content,
+                        ..Default::default()
+                    });
+                }
+            }
+        }
+        rows
+    }
+
+    // ─── Grok Build ───
+    //
+    // Path: ~/.grok/sessions/<url-encoded-cwd>/<session-id>/
+    // Prefer chat_history.jsonl (compact messages). Falls back to empty if missing.
+
+    fn load_grok_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let mut session_dirs = Vec::new();
+
+        // Single session directory
+        if base_path.join("chat_history.jsonl").is_file()
+            || base_path.join("summary.json").is_file()
+        {
+            session_dirs.push(base_path.to_path_buf());
+        }
+
+        let sessions = base_path.join("sessions");
+        if sessions.is_dir() {
+            for cwd_ent in std::fs::read_dir(&sessions).into_iter().flatten().flatten() {
+                if !cwd_ent.path().is_dir() {
+                    continue;
+                }
+                for sess in std::fs::read_dir(cwd_ent.path()).into_iter().flatten().flatten() {
+                    let sp = sess.path();
+                    if sp.is_dir()
+                        && (sp.join("chat_history.jsonl").is_file()
+                            || sp.join("summary.json").is_file())
+                    {
+                        session_dirs.push(sp);
+                    }
+                }
+            }
+        }
+        session_dirs.sort();
+
+        let mut rows = Vec::new();
+        for sess_path in session_dirs {
+            let session_id = sess_path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let cwd_enc = sess_path
+                .parent()
+                .and_then(|p| p.file_name())
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_default();
+            let project_path = utils::percent_decode_loose(&cwd_enc);
+
+            // optional summary for model / title
+            let (model, slug) = Self::grok_summary_meta(&sess_path);
+
+            let hist = sess_path.join("chat_history.jsonl");
+            if !hist.is_file() {
+                continue;
+            }
+            let file = match std::fs::File::open(&hist) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+            for (line_number, line) in BufReader::new(file).lines().flatten().enumerate() {
+                let line = line.trim().to_string();
+                if line.is_empty() {
+                    continue;
+                }
+                let v: serde_json::Value = match serde_json::from_str(&line) {
+                    Ok(v) => v,
+                    Err(_) => continue,
+                };
+                let msg_type = v
+                    .get("type")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("unknown");
+                // skip pure system preamble noise optionally still emit
+                let content = match v.get("content") {
+                    Some(c) => Some(utils::extract_text_content(c)),
+                    None => None,
+                };
+                let tool_calls = v.get("tool_calls");
+                let model_id = v
+                    .get("model_id")
+                    .and_then(|m| m.as_str())
+                    .map(String::from)
+                    .or_else(|| model.clone());
+
+                if let Some(arr) = tool_calls.and_then(|t| t.as_array()) {
+                    // assistant row with text
+                    if content.as_ref().map(|c| !c.is_empty()).unwrap_or(false) {
+                        rows.push(ConversationRow {
+                            source: "grok".to_string(),
+                            session_id: session_id.clone(),
+                            project_path: project_path.clone(),
+                            project_dir: cwd_enc.clone(),
+                            file_name: "chat_history.jsonl".to_string(),
+                            line_number: line_number as i64 + 1,
+                            message_type: "assistant".to_string(),
+                            message_role: Some("assistant".to_string()),
+                            message_content: content.clone(),
+                            model: model_id.clone(),
+                            slug: slug.clone(),
+                            cwd: Some(project_path.clone()),
+                            ..Default::default()
+                        });
+                    }
+                    for (ti, tc) in arr.iter().enumerate() {
+                        let tool_name = tc
+                            .get("function")
+                            .and_then(|f| f.get("name"))
+                            .or_else(|| tc.get("name"))
+                            .and_then(|n| n.as_str())
+                            .map(String::from);
+                        let tool_input = tc
+                            .get("function")
+                            .and_then(|f| f.get("arguments"))
+                            .or_else(|| tc.get("arguments"))
+                            .map(|a| {
+                                if a.is_string() {
+                                    a.as_str().unwrap_or("").to_string()
+                                } else {
+                                    a.to_string()
+                                }
+                            });
+                        let tool_use_id = tc
+                            .get("id")
+                            .and_then(|i| i.as_str())
+                            .map(String::from);
+                        rows.push(ConversationRow {
+                            source: "grok".to_string(),
+                            session_id: session_id.clone(),
+                            project_path: project_path.clone(),
+                            project_dir: cwd_enc.clone(),
+                            file_name: "chat_history.jsonl".to_string(),
+                            line_number: line_number as i64 + 1 + ti as i64,
+                            message_type: "tool_call".to_string(),
+                            message_role: Some("assistant".to_string()),
+                            model: model_id.clone(),
+                            tool_name,
+                            tool_use_id,
+                            tool_input,
+                            slug: slug.clone(),
+                            cwd: Some(project_path.clone()),
+                            ..Default::default()
+                        });
+                    }
+                    continue;
+                }
+
+                // tool result lines
+                if msg_type == "tool" || v.get("tool_call_id").is_some() {
+                    rows.push(ConversationRow {
+                        source: "grok".to_string(),
+                        session_id: session_id.clone(),
+                        project_path: project_path.clone(),
+                        project_dir: cwd_enc.clone(),
+                        file_name: "chat_history.jsonl".to_string(),
+                        line_number: line_number as i64 + 1,
+                        message_type: "tool_result".to_string(),
+                        message_role: Some("tool".to_string()),
+                        message_content: content,
+                        tool_use_id: v
+                            .get("tool_call_id")
+                            .and_then(|i| i.as_str())
+                            .map(String::from),
+                        slug: slug.clone(),
+                        cwd: Some(project_path.clone()),
+                        ..Default::default()
+                    });
+                    continue;
+                }
+
+                let role = match msg_type {
+                    "user" => "user",
+                    "assistant" => "assistant",
+                    "system" => "system",
+                    other => other,
+                };
+                rows.push(ConversationRow {
+                    source: "grok".to_string(),
+                    session_id: session_id.clone(),
+                    project_path: project_path.clone(),
+                    project_dir: cwd_enc.clone(),
+                    file_name: "chat_history.jsonl".to_string(),
+                    line_number: line_number as i64 + 1,
+                    message_type: role.to_string(),
+                    message_role: Some(role.to_string()),
+                    message_content: content,
+                    model: model_id,
+                    slug: slug.clone(),
+                    cwd: Some(project_path.clone()),
+                    ..Default::default()
+                });
+            }
+        }
+        rows
+    }
+
+    fn grok_summary_meta(sess_path: &std::path::Path) -> (Option<String>, Option<String>) {
+        let p = sess_path.join("summary.json");
+        let Ok(s) = std::fs::read_to_string(p) else {
+            return (None, None);
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&s) else {
+            return (None, None);
+        };
+        let model = v
+            .get("current_model_id")
+            .and_then(|m| m.as_str())
+            .map(String::from);
+        let slug = v
+            .get("generated_title")
+            .or_else(|| v.get("session_summary"))
+            .and_then(|t| t.as_str())
+            .map(String::from);
+        (model, slug)
+    }
+}
 
 // ─── TableFunc implementation ───
 
@@ -948,9 +1256,17 @@ impl TableFunc for Conversations {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::ClaudeDesktop => Self::load_claude_desktop_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
-            Provider::Cursor => Self::load_cursor_rows(&base_path),
+            Provider::Cursor => {
+                // Prefer IDE vscdb when present; fall back to CLI agent-transcripts.
+                let mut rows = Self::load_cursor_rows(&base_path);
+                if rows.is_empty() {
+                    rows = Self::load_cursor_agent_transcript_rows(&base_path);
+                }
+                rows
+            }
             Provider::Codex => Self::load_codex_rows(&base_path),
             Provider::Gemini => Self::load_gemini_rows(&base_path),
+            Provider::Grok => Self::load_grok_rows(&base_path),
             Provider::Unknown => Vec::new(),
         }
     }

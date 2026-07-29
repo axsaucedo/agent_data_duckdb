@@ -137,6 +137,7 @@ impl TableFunc for Todos {
             | Provider::Cursor
             | Provider::Codex
             | Provider::Gemini
+            | Provider::Grok
             | Provider::Unknown => Vec::new(),
         }
     }

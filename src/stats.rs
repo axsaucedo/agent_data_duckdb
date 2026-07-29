@@ -56,6 +56,7 @@ impl TableFunc for Stats {
             | Provider::Cursor
             | Provider::Codex
             | Provider::Gemini
+            | Provider::Grok
             | Provider::Unknown => Vec::new(),
         }
     }

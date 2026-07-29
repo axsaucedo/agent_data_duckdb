@@ -49,6 +49,58 @@ impl Plans {
             })
         }).collect()
     }
+
+    /// Grok: `sessions/<cwd-enc>/<session-id>/plan.md` (and plan.json when present).
+    fn load_grok_rows(base_path: &std::path::Path) -> Vec<PlanRow> {
+        let mut rows = Vec::new();
+        let mut session_dirs = Vec::new();
+        if base_path.join("plan.md").is_file() {
+            session_dirs.push(base_path.to_path_buf());
+        }
+        let sessions = base_path.join("sessions");
+        if sessions.is_dir() {
+            for cwd_ent in std::fs::read_dir(&sessions).into_iter().flatten().flatten() {
+                if !cwd_ent.path().is_dir() {
+                    continue;
+                }
+                for sess in std::fs::read_dir(cwd_ent.path()).into_iter().flatten().flatten() {
+                    let sp = sess.path();
+                    if sp.is_dir() && sp.join("plan.md").is_file() {
+                        session_dirs.push(sp);
+                    }
+                }
+            }
+        }
+        session_dirs.sort();
+        for sp in session_dirs {
+            let session_id = sp
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string());
+            for name in ["plan.md", "plan.json"] {
+                let fp = sp.join(name);
+                if !fp.is_file() {
+                    continue;
+                }
+                let Ok(content) = std::fs::read_to_string(&fp) else {
+                    continue;
+                };
+                let file_size = std::fs::metadata(&fp).map(|m| m.len() as i64).unwrap_or(0);
+                rows.push(PlanRow {
+                    source: "grok".to_string(),
+                    session_id: session_id.clone(),
+                    plan_name: fp
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_else(|| "plan".to_string()),
+                    file_name: name.to_string(),
+                    file_path: fp.to_string_lossy().to_string(),
+                    content,
+                    file_size,
+                });
+            }
+        }
+        rows
+    }
 }
 
 impl TableFunc for Plans {
@@ -75,6 +127,7 @@ impl TableFunc for Plans {
             // standalone plan files; Codex plans live inline in the rollout stream
             // and Gemini plan steps live inline in the chat transcript (no
             // standalone plan files). Return empty.
+            Provider::Grok => Self::load_grok_rows(&base_path),
             Provider::ClaudeDesktop
             | Provider::Cursor
             | Provider::Codex
