@@ -2,7 +2,7 @@
 
 A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [Cursor](https://cursor.com) (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `source='cursor'`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`, `source='codex'`) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`).
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [Cursor](https://cursor.com) (`state.vscdb` **or** `~/.cursor/projects/*/agent-transcripts/`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`), [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`), and [Grok Build](https://x.ai) (`~/.grok`, `source='grok'`).
 
 Written in 🦀 Rust.
 
@@ -85,7 +85,7 @@ GROUP BY tool_name
 ORDER BY uses DESC
 LIMIT 10;
 
--- Compare activity across Claude, Copilot, and Gemini
+-- Compare activity across Claude, Copilot, Gemini, Cursor, and Grok
 SELECT source, COUNT(DISTINCT session_id) AS sessions, COUNT(*) AS messages
 FROM (
     SELECT * FROM read_conversations(path='~/.claude')
@@ -93,8 +93,16 @@ FROM (
     SELECT * FROM read_conversations(path='~/.copilot')
     UNION ALL
     SELECT * FROM read_conversations(path='~/.gemini')
+    UNION ALL
+    SELECT * FROM read_conversations(path='~/.cursor')
+    UNION ALL
+    SELECT * FROM read_conversations(path='~/.grok')
 )
 GROUP BY source;
+
+-- Grok plans (plan.md per session)
+SELECT session_id, plan_name, length(content) AS chars
+FROM read_plans(path='~/.grok', source='grok');
 ```
 
 ### Default Behavior
