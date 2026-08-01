@@ -1,0 +1,51 @@
+# name: test/sql/grok_stats.test
+# description: Grok read_stats from signals.json + summary rollup
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts (2 dates: 2026-05-18 parent+child, 2026-05-19 beta)
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_grok');
+----
+2
+
+# All rows have source = 'grok'
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_grok') WHERE source != 'grok';
+----
+0
+
+# Explicit source='grok' returns same count
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_grok', source='grok');
+----
+2
+
+# ============================================================
+# Daily rollup (signals user+assistant; child has no signals → 0 msgs)
+# ============================================================
+
+query IIII
+SELECT date, message_count, session_count, tool_call_count
+FROM read_stats(path='test/data_grok')
+ORDER BY date;
+----
+2026-05-18	4	2	2
+2026-05-19	2	1	0
+
+# Dates unique
+query I
+SELECT COUNT(*) - COUNT(DISTINCT date) FROM read_stats(path='test/data_grok');
+----
+0
+
+# Non-negative counts
+query I
+SELECT COUNT(*) FROM read_stats(path='test/data_grok')
+WHERE message_count < 0 OR session_count < 0 OR tool_call_count < 0;
+----
+0

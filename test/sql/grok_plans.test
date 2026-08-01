@@ -1,0 +1,72 @@
+# name: test/sql/grok_plans.test
+# description: comprehensive tests for Grok plan loading (per-session plan.md)
+# group: [agent_data]
+
+require agent_data
+
+# ============================================================
+# Row counts — only the alpha session has a plan.md
+# ============================================================
+
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok');
+----
+1
+
+# All rows have source = 'grok'
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok') WHERE source != 'grok';
+----
+0
+
+# Explicit source='grok' returns same count
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok', source='grok');
+----
+1
+
+# ============================================================
+# Column validation
+# ============================================================
+
+# Session ID populated for Grok plans
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok') WHERE session_id IS NULL;
+----
+0
+
+# session_id is the alpha session
+query I
+SELECT session_id FROM read_plans(path='test/data_grok');
+----
+aaaa1111-0000-0000-0000-000000000001
+
+# file_name is plan.md
+query I
+SELECT file_name FROM read_plans(path='test/data_grok');
+----
+plan.md
+
+# plan_name comes from summary.generated_title
+query I
+SELECT plan_name FROM read_plans(path='test/data_grok');
+----
+Add hello world function
+
+# Content is non-empty
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok') WHERE content = '' OR content IS NULL;
+----
+0
+
+# File size positive
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok') WHERE file_size <= 0;
+----
+0
+
+# File size matches content length
+query I
+SELECT COUNT(*) FROM read_plans(path='test/data_grok') WHERE file_size != LENGTH(content);
+----
+0

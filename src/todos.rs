@@ -132,11 +132,13 @@ impl TableFunc for Todos {
             // Claude Desktop has no top-level todos/ directory. Cursor todos live
             // in composerData.todos (extraction deferred, see PR); Codex todo
             // extraction (update_plan tool calls) is deferred; Gemini todos live
-            // inline as write_todos tool calls. Return empty.
+            // inline as write_todos tool calls; Grok has no standalone todo
+            // store. Return empty.
             Provider::ClaudeDesktop
             | Provider::Cursor
             | Provider::Codex
             | Provider::Gemini
+            | Provider::Grok
             | Provider::Unknown => Vec::new(),
         }
     }

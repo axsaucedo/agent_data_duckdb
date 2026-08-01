@@ -2,7 +2,7 @@
 
 A [DuckDB extension](https://duckdb.org/community_extensions/list_of_extensions) written in Rust for querying, analysing and inspecting AI coding agents history. Read conversations, plans, todos, history, and usage stats directly from your local agent data directories.
 
-**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [Cursor](https://cursor.com) (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `source='cursor'`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`, `source='codex'`) and [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`).
+**Supported agents:** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (`~/.claude`), Claude Desktop ("Cowork", `~/Library/Application Support/Claude`), [GitHub Copilot CLI](https://docs.github.com/en/copilot/github-copilot-in-the-cli) (`~/.copilot`), [Cursor](https://cursor.com) (`~/Library/Application Support/Cursor/User/globalStorage/state.vscdb`, `source='cursor'`), [OpenAI Codex CLI](https://openai.com/codex) (`~/.codex`, `source='codex'`), [Gemini CLI](https://github.com/google-gemini/gemini-cli) (`~/.gemini`) and [xAI Grok CLI](https://x.ai) (`~/.grok`, `source='grok'`).
 
 Written in 🦀 Rust.
 
@@ -120,14 +120,22 @@ FROM read_conversations(path='~/.gemini');  -- detected as Gemini CLI
 ### Available Functions
 
 All functions accept two optional parameters:
-- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, a `state.vscdb` file → Cursor, `sessions/<YYYY>/` → Codex, `tmp/` + `installation_id` → Gemini CLI).
-- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, or `'gemini'`. Use when auto-detection fails or for non-standard directory layouts.
+- **`path`** — data directory path (default: `~/.claude`). Auto-detected from folder structure (`local-agent-mode-sessions/` → Claude Desktop, `projects/` → Claude, `session-state/` → Copilot, a `state.vscdb` file → Cursor, `sessions/<YYYY>/` → Codex, `tmp/` + `installation_id` → Gemini CLI, `sessions/<%encoded-cwd>/` → Grok). Grok lives at `~/.grok`, so pass `path='~/.grok'` (or `source='grok'`).
+- **`source`** — explicit provider override: `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, `'gemini'`, or `'grok'`. Use when auto-detection fails or for non-standard directory layouts.
 
-Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, or `'gemini'`) as the first column.
+Every table includes a **`source`** column (`'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, `'gemini'`, or `'grok'`) as the first column.
 
 > **Cursor** support is gated behind the default-on `cursor` cargo feature. It reads `state.vscdb` with a self-contained, pure-Rust, read-only SQLite reader (`src/vscdb.rs`) — no external dependency and no bundled C SQLite, so every target arch (including `windows_amd64_mingw`) builds with negligible size overhead. Build with `--no-default-features` to drop it. Only `read_conversations()` is implemented for Cursor; the other tables return no rows for `source='cursor'`.
 
 > **Codex** conversation data is read **only** from `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`. The `~/.codex/*.sqlite` files (app automation / logging / inbox) are intentionally ignored. Codex has no extra build dependencies.
+
+> **Grok** has no extra build dependencies. Transcripts live at
+> `~/.grok/sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl` with
+> session metadata in a sibling `summary.json` (and optional `signals.json` for
+> `read_stats`). Grok fills shared columns plus Grok-only `reasoning_effort` and
+> `reasoning_tokens` (see field map). `encrypted_content` is never read.
+> Token usage is **not** on `chat_history` lines — it comes from the sibling
+> `updates.jsonl` (`sessionUpdate == "turn_completed"` → `usage`).
 
 ### `read_conversations([path (opt)], [source (opt)])`
 
@@ -138,59 +146,98 @@ Reads conversation/event data.
 - **Cursor:** `composerData:*` / `bubbleId:*` rows from `state.vscdb` (read with the pure-Rust `src/vscdb.rs` reader; one composer = one session)
 - **Codex:** JSONL rollout streams from `sessions/<YYYY>/<MM>/<DD>/rollout-*.jsonl`
 - **Gemini:** JSON chat checkpoints from `tmp/<project-hash>/chats/session-<ts>-<id>.json` (one file = one session; each tool call is also emitted as a `tool_call` row)
+- **Grok:** JSONL transcripts from `sessions/<%encoded-cwd>/<session-uuid>/chat_history.jsonl`, with session metadata from sibling `summary.json`. **Timestamps** and **token** columns come from sibling `updates.jsonl` (wire event stream — chat_history itself has no time/usage fields). Subagent children linked via `…/<parent>/subagents/<child>/meta.json` set `is_agent=true` (and session-level `parent_uuid`).
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, or `'gemini'` |
+| `source` | VARCHAR | `'claude'`, `'claude-desktop'`, `'copilot'`, `'cursor'`, `'codex'`, `'gemini'`, or `'grok'` |
 | `session_id` | VARCHAR | Session UUID |
 | `project_path` | VARCHAR | Project/working directory path |
-| `project_dir` | VARCHAR | Raw encoded directory name (Claude only) |
+| `project_dir` | VARCHAR | Raw encoded directory name (Claude / Grok cwd dir) |
 | `file_name` | VARCHAR | Source filename |
-| `is_agent` | BOOLEAN | Sub-agent conversation (Claude only) |
+| `is_agent` | BOOLEAN | Sub-agent conversation (Claude; Grok via subagent meta linkage) |
 | `line_number` | BIGINT | Line number within file (1-based) |
 | `message_type` | VARCHAR | See message type mappings below |
 | `uuid` | VARCHAR | Message/event UUID |
-| `parent_uuid` | VARCHAR | Parent message/event UUID |
-| `timestamp` | VARCHAR | ISO 8601 timestamp |
+| `parent_uuid` | VARCHAR | Parent message/event UUID (Grok: parent session id on subagent rows) |
+| `timestamp` | VARCHAR | ISO 8601 timestamp (Claude/Copilot per-message; **Grok:** from `updates.jsonl` event clock, else summary session stamp) |
 | `message_role` | VARCHAR | `user`, `assistant`, `tool`, or NULL |
 | `message_content` | VARCHAR | Text content |
 | `model` | VARCHAR | AI model used |
 | `tool_name` | VARCHAR | Tool called |
 | `tool_use_id` | VARCHAR | Tool use/call identifier |
 | `tool_input` | VARCHAR | Tool input as JSON string |
-| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation) |
-| `output_tokens` | BIGINT | Output token count |
-| `cache_creation_tokens` | BIGINT | Cache creation tokens (Claude only) |
-| `cache_read_tokens` | BIGINT | Cache read tokens (Claude; Gemini `cached`) |
-| `slug` | VARCHAR | Session slug (Claude only) |
+| `input_tokens` | BIGINT | Input token count (Claude/Gemini per-message, Copilot truncation; **Grok: last `updates.jsonl` turn_completed `inputTokens`**, session aggregate duplicated on every row) |
+| `output_tokens` | BIGINT | Output token count (**Grok: last turn_completed `outputTokens`**) |
+| `cache_creation_tokens` | BIGINT | Cache creation tokens (Claude only; Grok always NULL) |
+| `cache_read_tokens` | BIGINT | Cache read tokens (Claude; Gemini `cached`; **Grok: last turn_completed `cachedReadTokens`**) |
+| `reasoning_tokens` | BIGINT | Reasoning token count (**Grok only:** last turn_completed `reasoningTokens`; other providers NULL) |
+| `slug` | VARCHAR | Session slug (Claude; Grok `summary.generated_title`) |
 | `git_branch` | VARCHAR | Git branch |
 | `cwd` | VARCHAR | Working directory |
-| `version` | VARCHAR | Agent CLI version |
-| `stop_reason` | VARCHAR | Stop reason (Claude only) |
-| `repository` | VARCHAR | GitHub repository (Copilot only) |
+| `version` | VARCHAR | Agent CLI version (Grok: `summary.chat_format_version` as string) |
+| `stop_reason` | VARCHAR | Claude API stop reason (NULL for Grok) |
+| `reasoning_effort` | VARCHAR | Grok-only: per-message `reasoning_effort` (`low`/`medium`/`high`/…), else session-level `summary.reasoning_effort` backfill; NULL for other sources |
+| `repository` | VARCHAR | GitHub repository (Copilot; Grok from `summary.git_remotes[0]`) |
 
 **Message type mappings:**
 
-| Claude | Copilot | Gemini | Description |
-|--------|---------|--------|-------------|
-| `user` | `user` | `user` | User message |
-| `assistant` | `assistant` | `assistant` (from `gemini`) | Assistant response |
-| `system` | — | — | System prompt |
-| `summary` | — | — | Conversation summary |
-| — | `reasoning` | — | Assistant reasoning |
-| — | `turn_start` / `turn_end` | — | Assistant turn boundaries |
-| — | `tool_start` / `tool_result` | `tool_call` | Tool execution events |
-| — | `session_start` / `session_resume` | — | Session lifecycle |
-| — | `session_info` / `session_error` | `info` / `error` | Session info/errors |
-| — | `truncation` / `model_change` | — | Context management |
-| — | `compaction_start` / `compaction_complete` | — | Context compaction |
-| — | `abort` | — | User cancellation |
+| Claude | Copilot | Gemini | Grok | Description |
+|--------|---------|--------|------|-------------|
+| `user` | `user` | `user` | `user` | User message |
+| `assistant` | `assistant` | `assistant` (from `gemini`) | `assistant` | Assistant response |
+| `system` | — | — | `system` | System prompt |
+| `summary` | — | — | — | Conversation summary |
+| — | `reasoning` | — | `reasoning` | Assistant reasoning (summary text only) |
+| — | `turn_start` / `turn_end` | — | — | Assistant turn boundaries |
+| — | `tool_start` / `tool_result` | `tool_call` | `tool_call` / `tool_result` | Tool execution events |
+| — | `session_start` / `session_resume` | — | — | Session lifecycle |
+| — | `session_info` / `session_error` | `info` / `error` | — | Session info/errors |
+| — | `truncation` / `model_change` | — | — | Context management |
+| — | `compaction_start` / `compaction_complete` | — | — | Context compaction |
+| — | `abort` | — | — | User cancellation |
 
 > **Gemini tool calls:** each assistant (`gemini`) turn may embed multiple
 > `toolCalls`. The first is surfaced inline on the assistant row (`tool_name` /
 > `tool_use_id` / `tool_input`), and every call additionally gets its own
 > `tool_call` row whose `parent_uuid` links back to the assistant message and
 > whose `message_content` holds the call status (`success` / `error` / `cancelled`).
+
+> **Grok field map:**
+>
+> | Grok source | Column | Notes |
+> |-------------|--------|--------|
+> | `type` | `message_type` | `system` / `user` / `reasoning` / `assistant` / `tool_result`; each `tool_calls[]` → `tool_call` |
+> | `content` / `summary[].text` | `message_content` | User may be string or `{type,text}` blocks; reasoning uses summary text only (never `encrypted_content`) |
+> | `model_id` (else `summary.current_model_id`) | `model` | |
+> | `tool_calls[].name/id/arguments` | `tool_name` / `tool_use_id` / `tool_input` | One row per call; string or object args → stable string |
+> | `reasoning_effort` (message, else summary) | `reasoning_effort` | Grok-only nullable varchar; `stop_reason` stays NULL |
+> | `summary.generated_title` | `slug` | Session title |
+> | `summary.chat_format_version` | `version` | Stringified |
+> | `updates.jsonl` `timestamp` (+ kind) | `timestamp` | Unix sec → ISO; cursor-aligned to chat types (`user_message_chunk`→user, `agent_thought_chunk`→reasoning, …). Fallback: summary activity stamp |
+> | `summary.head_branch` / `git_remotes[0]` / `git_root_dir` | `git_branch` / `repository` / `project_path` | |
+> | `reasoning.id`, else synthetic | `uuid` | Prefer real id; else `{session_id}:{line_number}` so uuid is never NULL |
+> | subagent `meta.json` | `is_agent` / `parent_uuid` | Child session → true; parent session id |
+> | `updates.jsonl` `turn_completed.usage.inputTokens` | `input_tokens` | Last usable snapshot; **session/prompt aggregate duplicated on every row** (not per-line) |
+> | `…outputTokens` | `output_tokens` | same |
+> | `…cachedReadTokens` | `cache_read_tokens` | same |
+> | `…reasoningTokens` | `reasoning_tokens` | Grok-only column; other providers NULL |
+>
+> **Token source note:** Usage is cumulative within one user-prompt agent loop
+> (`numTurns` 1→N then resets). v1 stamps the **last** `turn_completed` usage
+> in `updates.jsonl` onto all conversation rows for that session. Do not sum
+> token columns across rows for a session — pick any row (or `MAX`/`ANY_VALUE`).
+> Sessions without `updates.jsonl` (or without `usage`) keep token columns NULL.
+> `cache_creation_tokens` is never set for Grok.
+>
+> **Synthetic uuid form:** `{session_id}:{line_number}` (1-based chat_history line).
+> Multi-row fan-out from one assistant line (text + tool_call rows) shares that
+> line's uuid. Prefer real `reasoning.id` when present.
+>
+> **Timestamps:** `chat_history` has no time fields. The CLI clocks live in
+> `updates.jsonl`. The parser walks chat lines and assigns the next matching
+> wire event's ISO time (same `timestamp` column as Claude). No `updates.jsonl`
+> → summary session stamp only.
 
 ### `read_plans([path], [source])`
 
@@ -243,11 +290,18 @@ Reads command history.
 
 ### `read_stats([path], [source])`
 
-Reads daily activity stats. Currently Claude only — returns empty for Copilot, Claude Desktop, and Gemini.
+Reads daily activity stats.
+- **Claude:** `stats-cache.json` daily activity
+- **Grok:** rolls up per-session `signals.json` (+ `summary` fallbacks) by
+  `summary.created_at` date into the same columns (no new table function).
+  `message_count` = `userMessageCount + assistantMessageCount` (else
+  `summary.num_messages`); `tool_call_count` = `signals.toolCallCount`;
+  `session_count` = sessions on that date. Other providers return empty
+  (derive from `read_conversations()` in SQL instead).
 
 | Column | Type | Description |
 |--------|------|-------------|
-| `source` | VARCHAR | `'claude'` |
+| `source` | VARCHAR | `'claude'` or `'grok'` |
 | `date` | VARCHAR | Date (YYYY-MM-DD) |
 | `message_count` | BIGINT | Messages sent that day |
 | `session_count` | BIGINT | Sessions started that day |
@@ -350,7 +404,7 @@ See [examples/explorer/README.md](examples/explorer/README.md) for details.
 make test
 ```
 
-363 pinned assertions across 18 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, and parse error handling.
+437 pinned assertions across 21 test files covering row counts, column validation, cross-source queries, join invariants, edge cases, Grok stats, and parse error handling.
 
 ## Building from Source
 

@@ -5,13 +5,14 @@ use crate::types::copilot::*;
 #[cfg(feature = "cursor")]
 use crate::types::cursor::*;
 use crate::types::gemini::*;
+use crate::types::grok::*;
 use crate::utils;
 use crate::vtab::{self, ColDef, TableFunc};
 use duckdb::core::DataChunkHandle;
 use std::io::{BufRead, BufReader};
 
 /// A flattened conversation row ready for output.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct ConversationRow {
     source: String,
     session_id: String,
@@ -34,11 +35,15 @@ pub struct ConversationRow {
     output_tokens: Option<i64>,
     cache_creation_tokens: Option<i64>,
     cache_read_tokens: Option<i64>,
+    /// Grok-only: `updates.jsonl` turn_completed `reasoningTokens`. Other providers NULL.
+    reasoning_tokens: Option<i64>,
     slug: Option<String>,
     git_branch: Option<String>,
     cwd: Option<String>,
     version: Option<String>,
     stop_reason: Option<String>,
+    /// Grok-only: per-message effort, else session summary backfill.
+    reasoning_effort: Option<String>,
     repository: Option<String>,
 }
 
@@ -917,6 +922,250 @@ impl Conversations {
     }
 }
 
+// ─── Grok loading ───
+//
+// chat_history.jsonl is the transcript (no per-line timestamp on disk).
+// Sibling updates.jsonl IS the event clock: top-level `timestamp` (unix sec).
+// We walk chat lines in order and assign ISO timestamps from matching update
+// kinds so `timestamp` looks like Claude/Copilot (ISO string per row).
+// Fallback: summary last_active_at → updated_at → created_at.
+//
+// UUIDs: reasoning keeps real `id` when present; else `{session_id}:{line}`.
+// Tokens: last turn_completed.usage stamped as session aggregate on every row.
+// Subagents: meta.json → is_agent + parent_uuid.
+
+impl Conversations {
+    /// Prefer a real message id; otherwise `{session_id}:{line_number}`.
+    fn grok_row_uuid(existing: Option<String>, session_id: &str, line_number: i64) -> String {
+        existing.unwrap_or_else(|| format!("{}:{}", session_id, line_number))
+    }
+
+    /// Which updates.jsonl sessionUpdate kinds stamp this chat_history type.
+    fn grok_time_candidates(message_type: &str) -> &'static [&'static str] {
+        match message_type {
+            "user" => &["user_message_chunk"],
+            "reasoning" => &["agent_thought_chunk"],
+            "assistant" => &["agent_message_chunk", "tool_call"],
+            "tool_call" => &["tool_call"],
+            "tool_result" => &["tool_call_update", "tool_call"],
+            "system" => &["user_message_chunk", "agent_thought_chunk"], // first real event-ish
+            _ => &[],
+        }
+    }
+
+    fn load_grok_rows(base_path: &std::path::Path) -> Vec<ConversationRow> {
+        let files = utils::discover_grok_session_files(base_path);
+        let subagent_parents = utils::discover_grok_subagent_parents(base_path);
+        let mut rows = Vec::new();
+
+        for (session_uuid, decoded_cwd, encoded_cwd, file_path) in &files {
+            let session_dir = file_path.parent().unwrap_or(file_path);
+            let summary = utils::read_grok_summary(session_dir);
+            let usage = utils::read_grok_last_turn_usage(session_dir);
+            let mut time_cursor =
+                utils::GrokTimeCursor::new(utils::read_grok_update_timeline(session_dir));
+
+            let session_ts = summary.as_ref().and_then(utils::grok_session_timestamp);
+            let git_branch = summary.as_ref().and_then(|s| s.head_branch.clone());
+            let repository = summary
+                .as_ref()
+                .and_then(|s| s.git_remotes.as_ref())
+                .and_then(|r| r.first().cloned());
+            let session_model = summary.as_ref().and_then(|s| s.current_model_id.clone());
+            let session_effort = summary.as_ref().and_then(|s| s.reasoning_effort.clone());
+            let slug = summary.as_ref().and_then(|s| s.generated_title.clone());
+            let version = summary.as_ref().and_then(|s| {
+                s.chat_format_version.as_ref().map(|v| match v {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                })
+            });
+            let project_path = summary
+                .as_ref()
+                .and_then(|s| s.git_root_dir.clone())
+                .unwrap_or_else(|| decoded_cwd.clone());
+
+            let is_agent = subagent_parents.contains_key(session_uuid);
+            let parent_uuid = subagent_parents.get(session_uuid).cloned();
+
+            let file = match std::fs::File::open(file_path) {
+                Ok(f) => f,
+                Err(_) => continue,
+            };
+
+            let mut file_line: i64 = 0;
+            for line_result in BufReader::new(file).lines() {
+                file_line += 1;
+                let line = match line_result {
+                    Ok(l) if !l.trim().is_empty() => l,
+                    _ => continue,
+                };
+
+                // Peek type for timestamp assignment before full map.
+                let peek_type = serde_json::from_str::<serde_json::Value>(&line)
+                    .ok()
+                    .and_then(|v| {
+                        v.get("type")
+                            .and_then(|t| t.as_str())
+                            .map(|s| s.to_string())
+                    })
+                    .unwrap_or_default();
+                let row_ts = if peek_type == "system" {
+                    // Prefer session created_at for system preamble (before wire events).
+                    summary
+                        .as_ref()
+                        .and_then(|s| s.created_at.clone())
+                        .or_else(|| session_ts.clone())
+                } else {
+                    time_cursor.next_or(Self::grok_time_candidates(&peek_type), &session_ts)
+                };
+
+                let base = ConversationRow {
+                    source: "grok".to_string(),
+                    session_id: session_uuid.clone(),
+                    project_path: project_path.clone(),
+                    project_dir: encoded_cwd.clone(),
+                    file_name: "chat_history.jsonl".to_string(),
+                    is_agent,
+                    line_number: file_line,
+                    parent_uuid: parent_uuid.clone(),
+                    timestamp: row_ts,
+                    slug: slug.clone(),
+                    git_branch: git_branch.clone(),
+                    cwd: Some(decoded_cwd.clone()),
+                    version: version.clone(),
+                    repository: repository.clone(),
+                    // Session/prompt aggregate from last turn_completed (duplicated).
+                    input_tokens: usage.as_ref().and_then(|u| u.input_tokens),
+                    output_tokens: usage.as_ref().and_then(|u| u.output_tokens),
+                    cache_read_tokens: usage.as_ref().and_then(|u| u.cached_read_tokens),
+                    reasoning_tokens: usage.as_ref().and_then(|u| u.reasoning_tokens),
+                    ..Default::default()
+                };
+
+                match serde_json::from_str::<GrokMessage>(&line) {
+                    Ok(msg) => {
+                        for mut row in Self::grok_message_to_rows(
+                            msg,
+                            base,
+                            session_model.as_deref(),
+                            session_effort.as_deref(),
+                        ) {
+                            row.uuid = Some(Self::grok_row_uuid(
+                                row.uuid.take(),
+                                session_uuid,
+                                file_line,
+                            ));
+                            rows.push(row);
+                        }
+                    }
+                    Err(e) => rows.push(ConversationRow {
+                        message_type: "_parse_error".to_string(),
+                        message_content: Some(format!("Parse error: {}", e)),
+                        uuid: Some(Self::grok_row_uuid(None, session_uuid, file_line)),
+                        ..base
+                    }),
+                }
+            }
+        }
+        rows
+    }
+
+    /// Serialize tool `arguments` (JSON string or object) to a stable varchar.
+    fn grok_tool_input(args: &Option<serde_json::Value>) -> Option<String> {
+        args.as_ref().map(|v| match v {
+            serde_json::Value::String(s) => s.clone(),
+            other => other.to_string(),
+        })
+    }
+
+    /// Map one chat_history line to one or more rows.
+    /// Assistant with tool_calls → optional text row + one `tool_call` row per call
+    /// (Gemini-style multi-tool fan-out; first tool is no longer collapsed).
+    fn grok_message_to_rows(
+        msg: GrokMessage,
+        base: ConversationRow,
+        session_model: Option<&str>,
+        session_effort: Option<&str>,
+    ) -> Vec<ConversationRow> {
+        match msg {
+            GrokMessage::User(u) => vec![ConversationRow {
+                message_type: "user".to_string(),
+                message_role: Some("user".to_string()),
+                message_content: u.content.as_ref().map(utils::extract_text_content),
+                ..base
+            }],
+            GrokMessage::Reasoning(r) => {
+                // Like Codex: message_type=reasoning, role=assistant, summary text only.
+                let effort = r
+                    .reasoning_effort
+                    .or_else(|| session_effort.map(String::from));
+                vec![ConversationRow {
+                    message_type: "reasoning".to_string(),
+                    message_role: Some("assistant".to_string()),
+                    uuid: r.id,
+                    message_content: r.summary.as_ref().map(utils::extract_text_content),
+                    reasoning_effort: effort,
+                    model: session_model.map(String::from),
+                    ..base
+                }]
+            }
+            GrokMessage::Assistant(a) => {
+                let model = a
+                    .model_id
+                    .clone()
+                    .or_else(|| session_model.map(String::from));
+                let effort = a
+                    .reasoning_effort
+                    .or_else(|| session_effort.map(String::from));
+                let content = a
+                    .content
+                    .filter(|c| !c.is_empty());
+                let mut out = Vec::new();
+
+                // Text row when content is non-empty; if only tools, skip empty
+                // assistant shell (tool rows alone).
+                if content.is_some() || a.tool_calls.is_empty() {
+                    out.push(ConversationRow {
+                        message_type: "assistant".to_string(),
+                        message_role: Some("assistant".to_string()),
+                        message_content: content,
+                        model: model.clone(),
+                        reasoning_effort: effort.clone(),
+                        ..base.clone()
+                    });
+                }
+
+                for tc in &a.tool_calls {
+                    out.push(ConversationRow {
+                        message_type: "tool_call".to_string(),
+                        message_role: Some("tool".to_string()),
+                        model: model.clone(),
+                        reasoning_effort: effort.clone(),
+                        tool_name: tc.name.clone(),
+                        tool_use_id: tc.id.clone(),
+                        tool_input: Self::grok_tool_input(&tc.arguments),
+                        ..base.clone()
+                    });
+                }
+                out
+            }
+            GrokMessage::ToolResult(t) => vec![ConversationRow {
+                message_type: "tool_result".to_string(),
+                message_role: Some("tool".to_string()),
+                tool_use_id: t.tool_call_id,
+                message_content: t.content.as_ref().map(utils::extract_text_content),
+                ..base
+            }],
+            GrokMessage::System(s) => vec![ConversationRow {
+                message_type: "system".to_string(),
+                message_content: s.content.as_ref().map(utils::extract_text_content),
+                ..base
+            }],
+        }
+    }
+}
+
 
 // ─── TableFunc implementation ───
 
@@ -935,10 +1184,11 @@ impl TableFunc for Conversations {
             vtab::varchar("tool_name"),     vtab::varchar("tool_use_id"),
             vtab::varchar("tool_input"),    vtab::bigint("input_tokens"),
             vtab::bigint("output_tokens"),  vtab::bigint("cache_creation_tokens"),
-            vtab::bigint("cache_read_tokens"), vtab::varchar("slug"),
+            vtab::bigint("cache_read_tokens"), vtab::bigint("reasoning_tokens"),
+            vtab::varchar("slug"),
             vtab::varchar("git_branch"),    vtab::varchar("cwd"),
             vtab::varchar("version"),       vtab::varchar("stop_reason"),
-            vtab::varchar("repository"),
+            vtab::varchar("reasoning_effort"), vtab::varchar("repository"),
         ]
     }
 
@@ -951,6 +1201,7 @@ impl TableFunc for Conversations {
             Provider::Cursor => Self::load_cursor_rows(&base_path),
             Provider::Codex => Self::load_codex_rows(&base_path),
             Provider::Gemini => Self::load_gemini_rows(&base_path),
+            Provider::Grok => Self::load_grok_rows(&base_path),
             Provider::Unknown => Vec::new(),
         }
     }
@@ -977,11 +1228,13 @@ impl TableFunc for Conversations {
         vtab::set_i64_opt(output, 18, idx, row.output_tokens);
         vtab::set_i64_opt(output, 19, idx, row.cache_creation_tokens);
         vtab::set_i64_opt(output, 20, idx, row.cache_read_tokens);
-        vtab::set_varchar_opt(output, 21, idx, row.slug.as_deref());
-        vtab::set_varchar_opt(output, 22, idx, row.git_branch.as_deref());
-        vtab::set_varchar_opt(output, 23, idx, row.cwd.as_deref());
-        vtab::set_varchar_opt(output, 24, idx, row.version.as_deref());
-        vtab::set_varchar_opt(output, 25, idx, row.stop_reason.as_deref());
-        vtab::set_varchar_opt(output, 26, idx, row.repository.as_deref());
+        vtab::set_i64_opt(output, 21, idx, row.reasoning_tokens);
+        vtab::set_varchar_opt(output, 22, idx, row.slug.as_deref());
+        vtab::set_varchar_opt(output, 23, idx, row.git_branch.as_deref());
+        vtab::set_varchar_opt(output, 24, idx, row.cwd.as_deref());
+        vtab::set_varchar_opt(output, 25, idx, row.version.as_deref());
+        vtab::set_varchar_opt(output, 26, idx, row.stop_reason.as_deref());
+        vtab::set_varchar_opt(output, 27, idx, row.reasoning_effort.as_deref());
+        vtab::set_varchar_opt(output, 28, idx, row.repository.as_deref());
     }
 }

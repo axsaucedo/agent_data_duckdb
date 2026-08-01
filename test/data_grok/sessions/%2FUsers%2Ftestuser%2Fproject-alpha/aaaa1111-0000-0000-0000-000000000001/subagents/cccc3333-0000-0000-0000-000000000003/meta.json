@@ -1,0 +1,7 @@
+{
+  "parent_session_id": "aaaa1111-0000-0000-0000-000000000001",
+  "child_session_id": "cccc3333-0000-0000-0000-000000000003",
+  "subagent_type": "explore",
+  "description": "Explore the repo layout",
+  "effective_model_id": "grok-4.5-build"
+}

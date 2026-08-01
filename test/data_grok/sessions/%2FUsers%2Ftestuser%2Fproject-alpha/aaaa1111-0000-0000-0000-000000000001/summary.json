@@ -1,0 +1,14 @@
+{
+  "created_at": "2026-05-18T09:29:16.797043Z",
+  "updated_at": "2026-05-18T17:35:38.403978Z",
+  "last_active_at": "2026-05-18T17:35:38.403978Z",
+  "current_model_id": "grok-4.5-build",
+  "chat_format_version": 1,
+  "head_branch": "feature/hello",
+  "git_root_dir": "/Users/testuser/project-alpha",
+  "git_remotes": ["git@github.com:testuser/project-alpha.git"],
+  "generated_title": "Add hello world function",
+  "reasoning_effort": "medium",
+  "agent_name": "grok-build",
+  "num_messages": 8
+}

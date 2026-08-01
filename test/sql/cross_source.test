@@ -347,3 +347,68 @@ SELECT COUNT(DISTINCT source) FROM (
 ) WHERE message_type = 'tool_call';
 ----
 1
+
+
+# ============================================================
+# Grok in a UNION — schema stays compatible across all three sources
+# ============================================================
+
+# Conversations UNION over claude + copilot + grok: 180 + 53 + 14 = 247
+query I
+SELECT COUNT(*) FROM (
+    SELECT * FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_grok')
+);
+----
+247
+
+# Per-source breakdown including grok
+query II
+SELECT source, COUNT(*) AS cnt FROM (
+    SELECT * FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT * FROM read_conversations(path='test/data_grok')
+) GROUP BY source ORDER BY source;
+----
+claude	180
+copilot	53
+grok	14
+
+# Grok session ids do not collide with claude or copilot
+query I
+SELECT COUNT(*) FROM (
+    SELECT DISTINCT session_id FROM read_conversations(path='test/data_grok') WHERE session_id != ''
+    INTERSECT
+    SELECT DISTINCT session_id FROM read_conversations(path='test/data_claude') WHERE session_id != ''
+);
+----
+0
+
+# Plans UNION over claude + copilot + grok: 4 + 1 + 1 = 6
+query I
+SELECT COUNT(*) FROM (
+    SELECT * FROM read_plans(path='test/data_claude')
+    UNION ALL
+    SELECT * FROM read_plans(path='test/data_copilot')
+    UNION ALL
+    SELECT * FROM read_plans(path='test/data_grok')
+);
+----
+6
+
+# Three distinct sources across the conversations UNION
+query I
+SELECT COUNT(DISTINCT source) FROM (
+    SELECT source FROM read_conversations(path='test/data_claude')
+    UNION ALL
+    SELECT source FROM read_conversations(path='test/data_copilot')
+    UNION ALL
+    SELECT source FROM read_conversations(path='test/data_grok')
+);
+----
+3

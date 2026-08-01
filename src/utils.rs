@@ -434,10 +434,8 @@ pub fn read_workspace_yaml(session_dir: &Path) -> Option<crate::types::copilot::
 }
 
 /// Convert epoch milliseconds to an ISO-8601 UTC string (e.g. "2026-06-10T12:34:56Z").
-/// Minimal, dependency-free; sufficient for Cursor `createdAt` timestamps.
-/// Only used by the Cursor parser, so gated to avoid a dead-code warning when the
-/// `cursor` feature is disabled.
-#[cfg(feature = "cursor")]
+/// Minimal, dependency-free. Used by Cursor (`createdAt`) and Grok (`updates.jsonl`
+/// timestamps, which are unix seconds — call `epoch_secs_to_iso`).
 pub fn epoch_ms_to_iso(ms: i64) -> String {
     let secs = ms / 1000;
     let days = secs.div_euclid(86_400);
@@ -460,6 +458,11 @@ pub fn epoch_ms_to_iso(ms: i64) -> String {
         "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}Z",
         year, m, d, hh, mm, ss
     )
+}
+
+/// Unix seconds → ISO-8601 UTC (Grok `updates.jsonl` top-level `timestamp`).
+pub fn epoch_secs_to_iso(secs: i64) -> String {
+    epoch_ms_to_iso(secs.saturating_mul(1000))
 }
 
 // ─── Codex Discovery Functions ───
@@ -578,4 +581,292 @@ pub fn read_gemini_project_map(base_path: &Path) -> std::collections::HashMap<St
         }
     }
     map
+}
+
+// ─── Grok Discovery Functions ───
+
+/// Discover Grok chat_history.jsonl files.
+/// Layout: <base>/sessions/<url-encoded-cwd>/<session-uuid>/chat_history.jsonl
+/// Returns (session_uuid, decoded_cwd, encoded_cwd, file_path) tuples, sorted.
+/// Nested `subagents/` directories are not sessions themselves (the child has
+/// its own top-level session dir under the same encoded cwd).
+pub fn discover_grok_session_files(base_path: &Path) -> Vec<(String, String, String, PathBuf)> {
+    let sessions_dir = base_path.join("sessions");
+    let mut results = Vec::new();
+    if !sessions_dir.is_dir() {
+        return results;
+    }
+
+    let mut cwd_dirs: Vec<_> = std::fs::read_dir(&sessions_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir())
+        .collect();
+    cwd_dirs.sort_by_key(|e| e.file_name());
+
+    for cwd_entry in cwd_dirs {
+        let encoded_cwd = cwd_entry.file_name().to_string_lossy().to_string();
+        let decoded_cwd = url_decode(&encoded_cwd);
+
+        let mut session_dirs: Vec<_> = std::fs::read_dir(cwd_entry.path())
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .filter(|e| e.file_name() != "subagents")
+            .collect();
+        session_dirs.sort_by_key(|e| e.file_name());
+
+        for session_entry in session_dirs {
+            let chat = session_entry.path().join("chat_history.jsonl");
+            if chat.is_file() {
+                let session_uuid = session_entry.file_name().to_string_lossy().to_string();
+                results.push((session_uuid, decoded_cwd.clone(), encoded_cwd.clone(), chat));
+            }
+        }
+    }
+    results
+}
+
+/// Map child_session_id → parent_session_id from
+/// `sessions/<cwd>/<parent>/subagents/<child>/meta.json`.
+/// Used to set `is_agent` (and optional session-level `parent_uuid`) on child rows.
+pub fn discover_grok_subagent_parents(
+    base_path: &Path,
+) -> std::collections::HashMap<String, String> {
+    use crate::types::grok::GrokSubagentMeta;
+
+    let sessions_dir = base_path.join("sessions");
+    let mut map = std::collections::HashMap::new();
+    if !sessions_dir.is_dir() {
+        return map;
+    }
+
+    let cwd_dirs = std::fs::read_dir(&sessions_dir)
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_dir());
+
+    for cwd_entry in cwd_dirs {
+        let parent_dirs = std::fs::read_dir(cwd_entry.path())
+            .into_iter()
+            .flatten()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir());
+
+        for parent_entry in parent_dirs {
+            let subagents = parent_entry.path().join("subagents");
+            if !subagents.is_dir() {
+                continue;
+            }
+            let child_dirs = std::fs::read_dir(&subagents)
+                .into_iter()
+                .flatten()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_dir());
+
+            for child_entry in child_dirs {
+                let meta_path = child_entry.path().join("meta.json");
+                let content = match std::fs::read_to_string(&meta_path) {
+                    Ok(c) => c,
+                    Err(_) => continue,
+                };
+                let meta: GrokSubagentMeta = match serde_json::from_str(&content) {
+                    Ok(m) => m,
+                    Err(_) => continue,
+                };
+                let parent = meta
+                    .parent_session_id
+                    .or_else(|| {
+                        Some(parent_entry.file_name().to_string_lossy().to_string())
+                    });
+                let child = meta.child_session_id.or_else(|| {
+                    Some(child_entry.file_name().to_string_lossy().to_string())
+                });
+                if let (Some(p), Some(c)) = (parent, child) {
+                    map.insert(c, p);
+                }
+            }
+        }
+    }
+    map
+}
+
+/// Read a Grok session's summary.json (sibling of chat_history.jsonl).
+pub fn read_grok_summary(session_dir: &Path) -> Option<crate::types::grok::GrokSummary> {
+    let content = std::fs::read_to_string(session_dir.join("summary.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Last `turn_completed` usage snapshot from `updates.jsonl` (sibling of chat_history).
+///
+/// Returns `None` if the file is missing, unreadable, or has no usable usage block.
+/// Callers stamp this onto conversation rows as a session/prompt aggregate (not
+/// per-message); see README Grok field map.
+pub fn read_grok_last_turn_usage(
+    session_dir: &Path,
+) -> Option<crate::types::grok::GrokUsage> {
+    use crate::types::grok::{GrokUpdatesLine, GrokUsage};
+    use std::io::{BufRead, BufReader};
+
+    let file = std::fs::File::open(session_dir.join("updates.jsonl")).ok()?;
+    let mut last: Option<GrokUsage> = None;
+    for line_result in BufReader::new(file).lines() {
+        let line = match line_result {
+            Ok(l) if !l.trim().is_empty() => l,
+            _ => continue,
+        };
+        let env: GrokUpdatesLine = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let update = match env.params.and_then(|p| p.update) {
+            Some(u) => u,
+            None => continue,
+        };
+        if update.session_update.as_deref() != Some("turn_completed") {
+            continue;
+        }
+        if let Some(usage) = update.usage {
+            if usage.has_any_tokens() {
+                last = Some(usage);
+            }
+        }
+    }
+    last
+}
+
+/// Ordered timeline of semantic updates.jsonl events (with ISO timestamps).
+///
+/// Skips noise (hooks, memory flushes). Used to fill `ConversationRow.timestamp`
+/// so Grok rows look like Claude (ISO string per message) even though
+/// chat_history.jsonl has no time fields.
+pub fn read_grok_update_timeline(
+    session_dir: &Path,
+) -> Vec<crate::types::grok::GrokTimedEvent> {
+    use crate::types::grok::{GrokTimedEvent, GrokUpdatesLine};
+    use std::io::{BufRead, BufReader};
+
+    let file = match std::fs::File::open(session_dir.join("updates.jsonl")) {
+        Ok(f) => f,
+        Err(_) => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for line_result in BufReader::new(file).lines() {
+        let line = match line_result {
+            Ok(l) if !l.trim().is_empty() => l,
+            _ => continue,
+        };
+        let env: GrokUpdatesLine = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let secs = match env.timestamp {
+            Some(t) => t,
+            None => continue,
+        };
+        let kind = env
+            .params
+            .and_then(|p| p.update)
+            .and_then(|u| u.session_update)
+            .unwrap_or_default();
+        // Keep events that map onto transcript rows.
+        match kind.as_str() {
+            "user_message_chunk"
+            | "agent_thought_chunk"
+            | "agent_message_chunk"
+            | "tool_call"
+            | "tool_call_update"
+            | "turn_completed" => {
+                out.push(GrokTimedEvent {
+                    kind,
+                    timestamp_iso: epoch_secs_to_iso(secs),
+                });
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// Cursor over [`read_grok_update_timeline`] — next matching event, else fallback.
+pub struct GrokTimeCursor {
+    events: Vec<crate::types::grok::GrokTimedEvent>,
+    idx: usize,
+}
+
+impl GrokTimeCursor {
+    pub fn new(events: Vec<crate::types::grok::GrokTimedEvent>) -> Self {
+        Self { events, idx: 0 }
+    }
+
+    /// Advance to the next event whose kind is in `candidates` (skipping others).
+    pub fn next_for(&mut self, candidates: &[&str]) -> Option<String> {
+        while self.idx < self.events.len() {
+            let ev = &self.events[self.idx];
+            if candidates.iter().any(|c| *c == ev.kind) {
+                let iso = ev.timestamp_iso.clone();
+                self.idx += 1;
+                return Some(iso);
+            }
+            self.idx += 1;
+        }
+        None
+    }
+
+    /// Like `next_for`, but fall back when the stream is exhausted / missing.
+    pub fn next_or(&mut self, candidates: &[&str], fallback: &Option<String>) -> Option<String> {
+        self.next_for(candidates).or_else(|| fallback.clone())
+    }
+}
+
+/// Read a Grok session's signals.json (optional sibling of chat_history.jsonl).
+pub fn read_grok_signals(session_dir: &Path) -> Option<crate::types::grok::GrokSignals> {
+    let content = std::fs::read_to_string(session_dir.join("signals.json")).ok()?;
+    serde_json::from_str(&content).ok()
+}
+
+/// Session-level timestamp for Grok rows: prefer last activity, then update,
+/// then created (floor). chat_history has no per-message timestamps; updates.jsonl
+/// timestamps do not 1:1-align with transcript lines.
+pub fn grok_session_timestamp(summary: &crate::types::grok::GrokSummary) -> Option<String> {
+    summary
+        .last_active_at
+        .clone()
+        .or_else(|| summary.updated_at.clone())
+        .or_else(|| summary.created_at.clone())
+}
+
+/// YYYY-MM-DD from an ISO-ish summary timestamp (first 10 chars when well-formed).
+pub fn grok_date_from_timestamp(ts: &str) -> Option<String> {
+    if ts.len() >= 10 {
+        let date = &ts[..10];
+        if date.as_bytes()[4] == b'-' && date.as_bytes()[7] == b'-' {
+            return Some(date.to_string());
+        }
+    }
+    None
+}
+
+/// Minimal percent-decoding for Grok's url-encoded cwd directory names
+/// (`%2FUsers%2F...` → `/Users/...`). Handles the `%2F` case Grok actually emits.
+pub fn url_decode(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or("");
+            if let Ok(b) = u8::from_str_radix(hex, 16) {
+                out.push(b);
+                i += 3;
+                continue;
+            }
+        }
+        out.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8_lossy(&out).to_string()
 }

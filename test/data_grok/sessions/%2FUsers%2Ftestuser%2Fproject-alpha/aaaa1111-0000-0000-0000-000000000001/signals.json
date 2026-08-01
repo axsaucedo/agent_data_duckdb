@@ -1,0 +1,11 @@
+{
+  "userMessageCount": 2,
+  "assistantMessageCount": 2,
+  "toolCallCount": 2,
+  "turnCount": 2,
+  "avgTimeToFirstTokenMs": 1200,
+  "contextTokensUsed": 4500,
+  "modelsUsed": ["grok-4.5-build"],
+  "primaryModelId": "grok-4.5-build",
+  "sessionDurationSeconds": 360
+}

@@ -1,0 +1,10 @@
+{"timestamp":1700000100,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"user_message_chunk","content":"ignored"}}}
+{"timestamp":1700000105,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"agent_thought_chunk","content":"ignored"}}}
+{"timestamp":1700000110,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"agent_message_chunk","content":"ignored"}}}
+{"timestamp":1700000111,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"tool_call","toolCallId":"call_001"}}}
+{"timestamp":1700000112,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"tool_call","toolCallId":"call_002"}}}
+{"timestamp":1700000120,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_001","status":"completed"}}}
+{"timestamp":1700000121,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"tool_call_update","toolCallId":"call_002","status":"completed"}}}
+{"timestamp":1700000130,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"agent_message_chunk","content":"done"}}}
+{"timestamp":1700000140,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"turn_completed","prompt_id":"prompt-aaaa-001","usage":{"inputTokens":1200,"outputTokens":80,"totalTokens":1280,"cachedReadTokens":400,"reasoningTokens":45,"modelCalls":2,"numTurns":2}}}}
+{"timestamp":1700000200,"method":"_x.ai/session/update","params":{"sessionId":"aaaa1111-0000-0000-0000-000000000001","update":{"sessionUpdate":"user_message_chunk","content":"thanks"}}}

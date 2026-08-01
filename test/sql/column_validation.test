@@ -311,3 +311,82 @@ SELECT COUNT(*) FROM (
 );
 ----
 16
+
+# ============================================================
+# NULL pattern validation: Grok conversations
+# ============================================================
+
+# source is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE source IS NULL;
+----
+0
+
+# session_id is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE session_id IS NULL;
+----
+0
+
+# message_type is never NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE message_type IS NULL;
+----
+0
+
+# line_number is BIGINT and always positive
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE typeof(line_number) != 'BIGINT' OR line_number <= 0;
+----
+0
+
+# uuid always present (real reasoning.id or synthetic session:line)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok') WHERE uuid IS NULL;
+----
+0
+
+# Tokens only on the session that has updates.jsonl turn_completed usage
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE input_tokens IS NOT NULL OR output_tokens IS NOT NULL
+   OR reasoning_tokens IS NOT NULL;
+----
+10
+
+# reasoning_tokens is BIGINT when present (Grok only)
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE session_id = 'aaaa1111-0000-0000-0000-000000000001'
+  AND typeof(reasoning_tokens) != 'BIGINT';
+----
+0
+
+# Claude never populates reasoning_tokens
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude')
+WHERE reasoning_tokens IS NOT NULL;
+----
+0
+
+query II
+SELECT source, COUNT(*) FROM read_conversations(path='test/data_grok') GROUP BY source ORDER BY source;
+----
+grok	14
+
+# reasoning_effort is VARCHAR and populated for Grok assistant/tool_call rows
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_grok')
+WHERE typeof(reasoning_effort) != 'VARCHAR'
+  AND reasoning_effort IS NOT NULL;
+----
+0
+
+# Non-Grok sources leave reasoning_effort NULL
+query I
+SELECT COUNT(*) FROM read_conversations(path='test/data_claude')
+WHERE reasoning_effort IS NOT NULL;
+----
+0
+

@@ -49,6 +49,28 @@ impl Plans {
             })
         }).collect()
     }
+
+    /// Grok writes a `plan.md` into each session directory (when plan mode is used).
+    fn load_grok_rows(base_path: &std::path::Path) -> Vec<PlanRow> {
+        utils::discover_grok_session_files(base_path).into_iter().filter_map(|(session_id, _cwd, _enc, chat_path)| {
+            let plan_path = chat_path.parent()?.join("plan.md");
+            let content = std::fs::read_to_string(&plan_path).ok()?;
+            let file_size = std::fs::metadata(&plan_path).map(|m| m.len() as i64).unwrap_or(0);
+            let summary = chat_path.parent().and_then(utils::read_grok_summary);
+            let plan_name = summary
+                .and_then(|s| s.generated_title)
+                .unwrap_or_else(|| session_id.clone());
+            Some(PlanRow {
+                source: "grok".to_string(),
+                session_id: Some(session_id),
+                plan_name,
+                file_name: "plan.md".to_string(),
+                file_path: plan_path.to_string_lossy().to_string(),
+                content,
+                file_size,
+            })
+        }).collect()
+    }
 }
 
 impl TableFunc for Plans {
@@ -71,6 +93,7 @@ impl TableFunc for Plans {
         match detect::resolve_provider(&base_path, source) {
             Provider::Claude => Self::load_claude_rows(&base_path),
             Provider::Copilot => Self::load_copilot_rows(&base_path),
+            Provider::Grok => Self::load_grok_rows(&base_path),
             // Claude Desktop has no top-level plans/ directory; Cursor has no
             // standalone plan files; Codex plans live inline in the rollout stream
             // and Gemini plan steps live inline in the chat transcript (no
